@@ -1,6 +1,8 @@
 package shop.dear.commerce.order.offer.application;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shop.dear.commerce.order.offer.application.dto.CreateOfferCommand;
@@ -16,15 +18,17 @@ import shop.dear.commerce.order.offersnapshot.domain.repository.OfferSnapshotRep
 import shop.dear.commerce.order.offer.application.port.MemberPort;
 import shop.dear.commerce.order.offer.application.port.ProductPort;
 import shop.dear.commerce.order.offer.application.port.dto.ProductInfo;
+import shop.dear.commerce.order.offer.domain.constant.OfferReleaseReason;
 import shop.dear.common.event.financial.PaymentHoldRequestedEvent;
+import shop.dear.common.event.financial.PaymentReleaseRequestedEvent;
 import shop.dear.common.event.financial.PaymentRequestedEvent;
-import shop.dear.common.event.order.FinishedOrderEvent;
-import shop.dear.common.event.order.OrderType;
+import shop.dear.common.type.OrderType;
 import shop.dear.common.exception.BusinessException;
 import shop.dear.common.exception.CommonErrorCode;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 
 import static shop.dear.commerce.order.offer.domain.exception.OfferErrorCode.NOT_OFFER_SELLER;
 import static shop.dear.commerce.order.offer.domain.exception.OfferErrorCode.OFFER_NOT_FOUND;
@@ -52,7 +56,7 @@ public class OfferService {
     @Transactional
     public OfferSnapshot createOfferSnapshot(final CreateOfferSnapshotCommand command) {
         validateWriterId(command.writerId());
-        validateMemberExists(command.writerId());
+        validateMemberExists();
 
         final ProductInfo product = productPort.getProduct(command.productId());
 
@@ -79,14 +83,14 @@ public class OfferService {
         }
     }
 
-    private void validateMemberExists(final Long memberId) {
-        memberPort.validateMemberExists(memberId);
+    private void validateMemberExists() {
+        memberPort.validateMemberExists();
     }
 
     @Transactional
     public Offer createOffer(final CreateOfferCommand command) {
         validateWriterId(command.writerId());
-        validateMemberExists(command.writerId());
+        validateMemberExists();
 
         final OfferSnapshot snapshot = offerSnapshotRepository.findById(command.snapshotId())
                 .orElseThrow(() -> new BusinessException(OfferSnapshotErrorCode.OFFER_SNAPSHOT_NOT_FOUND));
@@ -110,7 +114,6 @@ public class OfferService {
 
         offerEventPublisher.publish(new PaymentHoldRequestedEvent(
                 savedOffer.getId(),
-                OrderType.OFFER,
                 savedOffer.getBuyerId(),
                 savedOffer.getAmount()
         ));
@@ -138,19 +141,33 @@ public class OfferService {
 
         offerEventPublisher.publish(new PaymentRequestedEvent(
                 offer.getId(),
-                OrderType.OFFER,
+                OrderType.OFFER.name(),
                 offer.getBuyerId(),
                 offer.getAmount()
         ));
 
-        offerEventPublisher.publish(new FinishedOrderEvent(
-                offer.getId(),
-                offer.getBuyerId(),
-                offer.getSellerId(),
-                offer.getProductId(),
-                offer.getAmount(),
-                OrderType.OFFER
-        ));
+        releaseOtherPendingOffers(offer);
+    }
+
+    private void releaseOtherPendingOffers(final Offer acceptedOffer) {
+        final List<Offer> otherOffers = offerRepository.findByProductIdAndStatusInOrderByInsertedAtDesc(
+                acceptedOffer.getProductId(), List.of(OfferStatus.PENDING));
+
+        for (final Offer otherOffer : otherOffers) {
+            if (Objects.equals(otherOffer.getId(), acceptedOffer.getId())) {
+                continue;
+            }
+
+            otherOffer.reject();
+            offerRepository.save(otherOffer);
+
+            offerEventPublisher.publish(new PaymentReleaseRequestedEvent(
+                    otherOffer.getId(),
+                    otherOffer.getBuyerId(),
+                    otherOffer.getAmount(),
+                    OfferReleaseReason.OFFER_OUTBID.name()
+            ));
+        }
     }
 
     @Transactional
@@ -164,6 +181,13 @@ public class OfferService {
 
         offer.reject();
         offerRepository.save(offer);
+
+        offerEventPublisher.publish(new PaymentReleaseRequestedEvent(
+                offer.getId(),
+                offer.getBuyerId(),
+                offer.getAmount(),
+                OfferReleaseReason.OFFER_REJECTED.name()
+        ));
     }
 
     public Offer findOfferById(final Long offerId, final Long memberId) {
@@ -177,10 +201,11 @@ public class OfferService {
         return offer;
     }
 
-    public List<Offer> findOffersByProductId(
+    public Page<Offer> findOffersByProductId(
             final Long memberId,
             final Long productId,
-            final List<OfferStatus> statuses
+            final List<OfferStatus> statuses,
+            final Pageable pageable
     ) {
         final ProductInfo product = productPort.getProduct(productId);
         if (!product.sellerId().equals(memberId)) {
@@ -188,8 +213,8 @@ public class OfferService {
         }
 
         if (statuses == null || statuses.isEmpty()) {
-            return offerRepository.findByProductIdOrderByInsertedAtDesc(productId);
+            return offerRepository.findByProductIdOrderByInsertedAtDesc(productId, pageable);
         }
-        return offerRepository.findByProductIdAndStatusInOrderByInsertedAtDesc(productId, statuses);
+        return offerRepository.findByProductIdAndStatusInOrderByInsertedAtDesc(productId, statuses, pageable);
     }
 }

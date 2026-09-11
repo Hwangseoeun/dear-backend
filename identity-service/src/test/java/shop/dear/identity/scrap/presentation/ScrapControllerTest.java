@@ -3,6 +3,8 @@ package shop.dear.identity.scrap.presentation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientAutoConfiguration;
+import org.springframework.boot.security.oauth2.client.autoconfigure.servlet.OAuth2ClientWebSecurityAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -28,7 +30,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(ScrapController.class)
+@WebMvcTest(
+        value = ScrapController.class,
+        excludeAutoConfiguration = {
+                OAuth2ClientAutoConfiguration.class,
+                OAuth2ClientWebSecurityAutoConfiguration.class
+        }
+)
 class ScrapControllerTest {
 
     private static final String MEMBER_ID_HEADER = "X-Authenticated-Member-Id";
@@ -75,19 +83,19 @@ class ScrapControllerTest {
         final ResultActions result = mockMvc
             .perform(get("/api/scraps")
                 .header(MEMBER_ID_HEADER, "1")
-                .param("page", "0")
+                .param("page", "1")
                 .param("size", "10"));
 
         result
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.scrapList.length()").value(2))
-            .andExpect(jsonPath("$.data.scrapList[0].id").value(200))
-            .andExpect(jsonPath("$.data.scrapList[0].name").value("상품200"))
-            .andExpect(jsonPath("$.data.page").value(0))
-            .andExpect(jsonPath("$.data.size").value(10))
-            .andExpect(jsonPath("$.data.totalElements").value(2))
-            .andExpect(jsonPath("$.data.totalPages").value(1))
-            .andExpect(jsonPath("$.data.hasNext").value(false));
+            .andExpect(jsonPath("$.data.content.length()").value(2))
+            .andExpect(jsonPath("$.data.content[0].id").value(200))
+            .andExpect(jsonPath("$.data.content[0].name").value("상품200"))
+            .andExpect(jsonPath("$.data.pagination.currentPage").value(1))
+            .andExpect(jsonPath("$.data.pagination.pageSize").value(10))
+            .andExpect(jsonPath("$.data.pagination.totalItems").value(2))
+            .andExpect(jsonPath("$.data.pagination.totalPages").value(1))
+            .andExpect(jsonPath("$.data.pagination.hasNext").value(false));
     }
 
     @Test

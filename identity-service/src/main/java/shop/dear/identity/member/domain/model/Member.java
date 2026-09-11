@@ -13,7 +13,12 @@ import shop.dear.identity.member.domain.exception.MemberErrorCode;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "member")
+@Table(
+    name = "member",
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uk_member_nickname", columnNames = "nickname")
+    }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Member extends BaseEntity {
@@ -31,7 +36,7 @@ public class Member extends BaseEntity {
     @Column(name = "phone_number", length = 20, nullable = false)
     private String phoneNumber;
 
-    @Column(name = "nickname", nullable = false, unique = true)
+    @Column(name = "nickname", nullable = false)
     private String nickname;
 
     @OneToOne(mappedBy = "member", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
@@ -41,7 +46,7 @@ public class Member extends BaseEntity {
     @Column(name = "status", nullable = false)
     private MemberStatus status;
 
-    @Column(name = "withdrawnAt", nullable = true)
+    @Column(name = "withdrawn_at", nullable = true)
     private LocalDateTime withdrawnAt;
 
     private Member(
@@ -71,7 +76,7 @@ public class Member extends BaseEntity {
         );
     }
 
-    public void changeProfile(
+    public void updateProfile(
         final String defaultShippingAddress,
         final String phoneNumber,
         final String nickname
@@ -81,60 +86,10 @@ public class Member extends BaseEntity {
         this.nickname = nickname;
     }
 
-    public boolean isSeller(){
-        return this.seller != null && this.seller.getStatus() == SellerStatus.ACTIVE;
-    }
-
-    public boolean isActive(){
-        return this.status == MemberStatus.ACTIVE;
-    }
-
-    public boolean isSellerRejoin(){
-        return this.seller != null && this.seller.getStatus() == SellerStatus.WITHDRAWN;
-    }
-
-    public void registerSeller(final String bank, final String account) {
-        if (this.isSeller()) {
-            throw new BusinessException(MemberErrorCode.ALREADY_SELLER);
-        }
-
-        if (this.seller != null) {
-            if (!this.isSellerRejoin()) {
-                throw new BusinessException(MemberErrorCode.ALREADY_SELLER);
-            }
-            this.seller.reRegister(bank, account);
-            return;
-        }
-
-        this.seller = new Seller(
-            bank,
-            account,
-            this
-        );
-    }
-
-    public void updateSellerAccount(String bank, String account){
-        if (!this.isSeller()) {
-            throw new BusinessException(MemberErrorCode.NOT_SELLER);
-        }
-        this.seller.changeAccount(bank,account);
-    }
-
-    public void requestSellerWithdrawal() {
-        if (!this.isSeller()) {
-            throw new BusinessException(MemberErrorCode.NOT_SELLER);
-        }
-        this.seller.withdraw();
-    }
-
-    public void completeSellerWithdrawal(){
-        this.seller.withdraw();
-    }
-
     public void anonymizeProfile() {
-        if (seller != null && seller.getStatus() != SellerStatus.WITHDRAWN) {
+        if (seller != null && seller.getStatus() == SellerStatus.ACTIVE) {
             throw new BusinessException(
-                    MemberErrorCode.SELLER_WITHDRAWAL_REQUIRED
+                MemberErrorCode.SELLER_WITHDRAWAL_REQUIRED
             );
         }
 
@@ -144,5 +99,81 @@ public class Member extends BaseEntity {
         this.nickname = "withdrawn_" + this.id;
         this.status = MemberStatus.WITHDRAWN;
         this.withdrawnAt = LocalDateTime.now();
+    }
+
+    public boolean isActive(){
+        return this.status == MemberStatus.ACTIVE;
+    }
+
+    public boolean isSellerActive(){
+        return this.seller != null && this.seller.getStatus() == SellerStatus.ACTIVE;
+    }
+
+    public boolean isSellerWithdrawn(){
+        return this.seller != null && this.seller.getStatus() != SellerStatus.ACTIVE;
+    }
+
+    public void registerSeller(final AccountInfo accountInfo) {
+        if (this.isSellerActive()) {
+            throw new BusinessException(MemberErrorCode.ALREADY_SELLER);
+        }
+
+        if (this.isSellerWithdrawn()) {
+            this.seller.activate(accountInfo);
+            return;
+        }
+
+        if (this.seller != null) {
+            throw new BusinessException(MemberErrorCode.ALREADY_SELLER);
+        }
+
+        this.seller = Seller.create(
+            accountInfo,
+            this
+        );
+    }
+
+    public AccountInfo getSellerAccountInfo() {
+        if (!this.isSellerActive()) {
+            throw new BusinessException(MemberErrorCode.NOT_SELLER);
+        }
+
+        return this.seller.getAccountInfo();
+    }
+
+    public void updateSellerAccount(final AccountInfo accountInfo){
+        if (!this.isSellerActive()) {
+            throw new BusinessException(MemberErrorCode.NOT_SELLER);
+        }
+
+        this.seller.updateAccount(accountInfo);
+    }
+
+    public void withdrawSeller() {
+        if (!this.isSellerActive()) {
+            throw new BusinessException(MemberErrorCode.NOT_SELLER);
+        }
+        this.seller.withdraw();
+    }
+
+    /**
+     * 탈퇴한 판매자의 계좌정보를 보관 대상으로 넘기고 셀러에서 제거한다.
+     * 계좌정보를 지우기 전에 스냅샷을 먼저 만들어 반환하므로 호출 순서에 의존하지 않는다.
+     */
+    public SellerAccountSnapshot archiveSeller() {
+
+        if (this.seller == null || this.seller.getStatus() != SellerStatus.WITHDRAWN) {
+            throw new BusinessException(MemberErrorCode.SELLER_NOT_WITHDRAWN);
+        }
+
+        SellerAccountSnapshot snapshot = new SellerAccountSnapshot(
+            this.id,
+            this.seller.getAccountInfo(),
+            this.seller.getWithdrawnAt()
+        );
+
+        this.seller.archive();
+
+        return snapshot;
     }
 }

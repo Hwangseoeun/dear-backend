@@ -1,6 +1,7 @@
 package shop.dear.commerce.product.presentation;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +31,8 @@ import shop.dear.commerce.product.presentation.dto.response.GetSellerProductResp
 import shop.dear.commerce.product.presentation.dto.response.PresignedUrlsResponse;
 import shop.dear.commerce.product.presentation.dto.response.ProductDetailResponse;
 import shop.dear.common.auth.AuthUser;
+import shop.dear.common.pagination.PaginationRequest;
+import shop.dear.common.pagination.PaginationResponse;
 import shop.dear.common.response.ApiResponse;
 
 import java.time.LocalDate;
@@ -90,28 +93,45 @@ public class ProductController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<ApiResponse<List<GetSellerProductResponse>>> getSellerProducts(@AuthUser final Long sellerId) {
-        final List<GetSellerProductDto> result = productService.getSellerProducts(sellerId);
+    public ResponseEntity<ApiResponse<PaginationResponse<GetSellerProductResponse>>> getSellerProducts(
+        @AuthUser final Long sellerId,
+        @RequestParam(required = false) final Integer page,
+        @RequestParam(required = false) final Integer size
+    ) {
+        final PaginationRequest paginationRequest = new PaginationRequest(page, size);
+
+        final Page<GetSellerProductDto> result = productService.getSellerProducts(sellerId, paginationRequest.toPageable());
+
         final List<GetSellerProductResponse> response = result.stream()
             .map(GetSellerProductResponse::of)
             .toList();
 
-        return ResponseEntity.ok(successWithData(response));
+        return ResponseEntity.ok(successWithData(PaginationResponse.of(result, response)));
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<GetProductResponse>>> getAllProduct(
+    public ResponseEntity<ApiResponse<PaginationResponse<GetProductResponse>>> getAllProduct(
         @RequestParam(value = "saleType",required = false) final ProductSaleType saleType,
         @RequestParam(value = "status", required = false) final ProductStatus status,
         @RequestParam(value = "createdAt", required = false) final LocalDate createdAt,
-        @RequestParam(value = "category", required = false) final ProductCategory category
+        @RequestParam(value = "category", required = false) final ProductCategory category,
+        @RequestParam(required = false) final Integer page,
+        @RequestParam(required = false) final Integer size
     ) {
-        final List<GetProductDto> result = productService.getAllProduct(saleType, status, createdAt, category);
+        final PaginationRequest paginationRequest = new PaginationRequest(page, size);
+
+        final Page<GetProductDto> result = productService.getAllProduct(
+            saleType,
+            status,
+            createdAt,
+            category,
+            paginationRequest.toPageable()
+        );
 
         final List<GetProductResponse> response = result.stream()
             .map(GetProductResponse::of)
             .toList();
 
-        return ResponseEntity.ok(successWithData(response));
+        return ResponseEntity.ok(successWithData(PaginationResponse.of(result, response)));
     }
 }

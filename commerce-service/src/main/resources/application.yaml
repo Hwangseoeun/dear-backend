@@ -6,6 +6,14 @@ spring:
       - optional:classpath:application-monitoring.yaml
   profiles:
     active: local
+  elasticsearch:
+    uris: ${ES_URL:http://localhost:9200}
+    connection-timeout: 3s
+    socket-timeout: 10s
+  task:
+    scheduling:
+      pool:
+        size: 2
 
 server:
   port: 8082
@@ -22,9 +30,13 @@ offer:
   client:
     base-url: ${OFFER_CLIENT_BASE_URL}
 
-wallet:
+recommendation:
   client:
-    base-url: ${WALLET_CLIENT_BASE_URL}
+    base-url: ${RECOMMENDATION_CLIENT_BASE_URL}
+
+financial:
+  client:
+    base-url: ${FINANCIAL_CLIENT_BASE_URL}
 
 secret:
   aws:
@@ -38,3 +50,22 @@ secret:
 toss:
   base-url: ${TOSS_BASE_URL:https://api.tosspayments.com}
   secret-key: ${TOSS_SECRET_KEY:}
+
+messaging:
+  rabbitmq:
+    stream:
+      host: ${RABBITMQ_STREAM_HOST}
+      port: ${RABBITMQ_STREAM_PORT:5552}
+      username: ${RABBITMQ_STREAM_USERNAME}
+      password: ${RABBITMQ_STREAM_PASSWORD}
+      virtualHost: ${RABBITMQ_STREAM_VIRTUAL_HOST:/}
+
+outbox:
+  relay:
+    fixed-delay: ${OUTBOX_RELAY_FIXED_DELAY:5000}
+
+# ES가 죽으면 JPA로 풀백하지만, 죽었다는 사실은 알아야 함.
+management:
+  health:
+    elasticsearch:
+      enabled: true

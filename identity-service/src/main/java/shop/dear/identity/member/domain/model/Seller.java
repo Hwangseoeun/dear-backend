@@ -1,6 +1,9 @@
 package shop.dear.identity.member.domain.model;
 
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Id;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Enumerated;
@@ -17,6 +20,8 @@ import lombok.NoArgsConstructor;
 import shop.dear.audit.BaseEntity;
 import shop.dear.identity.member.domain.constract.SellerStatus;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "seller")
 @Getter
@@ -27,11 +32,9 @@ public class Seller extends BaseEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "bank", nullable = false)
-    private String bank;
-
-    @Column(name = "account", nullable = false)
-    private String account;
+    //보관 이관(archive) 시 계좌정보를 비우므로 NOT NULL 제약을 두지 않는다
+    @Embedded
+    private AccountInfo accountInfo;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
@@ -41,35 +44,48 @@ public class Seller extends BaseEntity {
     @JoinColumn(name = "member_id", nullable = false, unique = true)
     private Member member;
 
-    Seller(
-        final String bank,
-        final String account,
+    @Column(name = "registered_at", nullable = false)
+    private LocalDateTime registeredAt;
+
+    @Column(name = "withdrawn_at")
+    private LocalDateTime withdrawnAt;
+
+    private Seller(
+        final AccountInfo accountInfo,
         final Member member
     ){
-        this.bank = bank;
-        this.account = account;
+        this.accountInfo = accountInfo;
         this.member = member;
+        this.registeredAt = LocalDateTime.now();
         this.status = SellerStatus.ACTIVE;
     }
 
-    void changeAccount(final String bank, final String account) {
-        this.bank = bank;
-        this.account = account;
+    static Seller create(final AccountInfo accountInfo, final Member member) {
+        Seller seller = new Seller(accountInfo, member);
+        return seller;
     }
 
-    public void reRegister(final String bank, final String account) {
-        this.bank = bank;
-        this.account = account;
+    void activate(final AccountInfo accountInfo) {
+        this.accountInfo = accountInfo;
+        this.registeredAt = LocalDateTime.now();
+        this.withdrawnAt = null;
         this.status = SellerStatus.ACTIVE;
     }
 
-    void withdrawing(){
-        this.status = SellerStatus.WITHDRAWING;
+    void updateAccount(final AccountInfo accountInfo) {
+
+        if (!this.accountInfo.equals(accountInfo)) {
+            this.accountInfo = accountInfo;
+        }
     }
 
     void withdraw() {
+        this.withdrawnAt = LocalDateTime.now();
         this.status = SellerStatus.WITHDRAWN;
-        this.bank = "****";
-        this.account = "****";
+    }
+
+    void archive() {
+        this.status = SellerStatus.ARCHIVED;
+        this.accountInfo = null;
     }
 }

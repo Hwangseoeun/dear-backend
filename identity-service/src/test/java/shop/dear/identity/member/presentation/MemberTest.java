@@ -1,14 +1,18 @@
 package shop.dear.identity.member.presentation;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientAutoConfiguration;
+import org.springframework.boot.security.oauth2.client.autoconfigure.servlet.OAuth2ClientWebSecurityAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import shop.dear.common.exception.BusinessException;
+import shop.dear.common.exception.CommonErrorCode;
 import shop.dear.identity.member.application.MemberService;
 import shop.dear.identity.member.application.dto.MemberInfo;
 import shop.dear.identity.member.application.dto.SellerInfo;
@@ -17,6 +21,8 @@ import shop.dear.identity.member.presentation.dto.request.RegisterSellerRequest;
 import shop.dear.identity.member.presentation.dto.request.UpdateProfileRequest;
 import shop.dear.identity.member.presentation.dto.request.UpdateSellerAccountRequest;
 import tools.jackson.databind.ObjectMapper;
+
+import java.sql.SQLException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -29,7 +35,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(MemberController.class)
+@WebMvcTest(
+        value = MemberController.class,
+        excludeAutoConfiguration = {
+                OAuth2ClientAutoConfiguration.class,
+                OAuth2ClientWebSecurityAutoConfiguration.class
+        }
+)
 public class MemberTest {
 
     @Autowired
@@ -108,11 +120,126 @@ public class MemberTest {
     }
 
     @Test
+    @DisplayName("/profile/me 를 호출하면 경로변수 매핑보다 우선하여 본인 프로필 전체 정보를 반환한다")
+    void getMyProfile_success() throws Exception {
+
+        given(memberService.getProfile(1L))
+            .willReturn(new MemberInfo(
+                    1L,
+                    "테스트",
+                    "서울시 강남구",
+                    "010-1234-5678",
+                    "user_000001"
+                )
+            );
+
+        final ResultActions result = mockMvc
+            .perform(get("/api/members/profile/me")
+                .header("X-Authenticated-Member-Id", "1"));
+
+        result
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.code").value("success"))
+            .andExpect(jsonPath("$.data.id").value(1L))
+            .andExpect(jsonPath("$.data.name").value("테스트"))
+            .andExpect(jsonPath("$.data.defaultShippingAddress").value("서울시 강남구"))
+            .andExpect(jsonPath("$.data.phoneNumber").value("010-1234-5678"))
+            .andExpect(jsonPath("$.data.nickname").value("user_000001"));
+    }
+
+    @Test
+    @DisplayName("인증 정보 없이 /profile/me 를 호출하면 상태코드 401을 반환한다")
+    void getMyProfile_unauthenticated() throws Exception {
+
+        final ResultActions result = mockMvc
+            .perform(get("/api/members/profile/me"));
+
+        result.andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("타인 프로필을 조회하면 개인정보 없이 id와 nickname만 반환한다")
+    void getPublicProfile_success() throws Exception {
+
+        given(memberService.getProfile(2L))
+            .willReturn(new MemberInfo(
+                    2L,
+                    "테스트2",
+                    "부산시 해운대구",
+                    "010-9999-8888",
+                    "user_000002"
+                )
+            );
+
+        final ResultActions result = mockMvc
+            .perform(get("/api/members/profile/2")
+                .header("X-Authenticated-Member-Id", "1"));
+
+        result
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.code").value("success"))
+            .andExpect(jsonPath("$.data.id").value(2L))
+            .andExpect(jsonPath("$.data.nickname").value("user_000002"))
+            .andExpect(jsonPath("$.data.name").doesNotExist())
+            .andExpect(jsonPath("$.data.defaultShippingAddress").doesNotExist())
+            .andExpect(jsonPath("$.data.phoneNumber").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("본인 id를 경로변수로 조회해도 공개 프로필 형태로 반환한다")
+    void getPublicProfile_ownId_stillPublic() throws Exception {
+
+        given(memberService.getProfile(1L))
+            .willReturn(new MemberInfo(
+                    1L,
+                    "테스트",
+                    "서울시 강남구",
+                    "010-1234-5678",
+                    "user_000001"
+                )
+            );
+
+        final ResultActions result = mockMvc
+            .perform(get("/api/members/profile/1")
+                .header("X-Authenticated-Member-Id", "1"));
+
+        result
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.nickname").value("user_000001"))
+            .andExpect(jsonPath("$.data.name").doesNotExist())
+            .andExpect(jsonPath("$.data.phoneNumber").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 회원을 조회하면 상태코드 400과 MEMBER_NOT_FOUND 에러코드를 반환한다")
+    void getPublicProfile_notFound() throws Exception {
+
+        given(memberService.getProfile(999L))
+            .willThrow(new BusinessException(MemberErrorCode.MEMBER_NOT_FOUND));
+
+        final ResultActions result = mockMvc
+            .perform(get("/api/members/profile/999")
+                .header("X-Authenticated-Member-Id", "1"));
+
+        result
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value(MemberErrorCode.MEMBER_NOT_FOUND.getValue()))
+            .andExpect(jsonPath("$.message").value(MemberErrorCode.MEMBER_NOT_FOUND.getMessage()));
+    }
+
+    @Test
     @DisplayName("동시 요청으로 닉네임이 충돌하면 상태코드 409와 DUPLICATE_NICKNAME 에러코드를 반환한다")
     void updateProfile_concurrentNicknameConflict() throws Exception {
 
         given(memberService.updateProfile(any(), any()))
-            .willThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
+            .willThrow(new DataIntegrityViolationException(
+                "could not execute statement",
+                new ConstraintViolationException(
+                    "duplicate key value violates unique constraint",
+                    new SQLException("duplicate key", "23505"),
+                    "uk_member_nickname"
+                )
+            ));
 
         final ResultActions result = mockMvc
             .perform(patch("/api/members/profile/me")
@@ -127,10 +254,55 @@ public class MemberTest {
     }
 
     @Test
+    @DisplayName("닉네임 외의 제약 위반이면 상태코드 500을 반환한다")
+    void updateProfile_otherConstraintViolation() throws Exception {
+
+        given(memberService.updateProfile(any(), any()))
+            .willThrow(new DataIntegrityViolationException(
+                "could not execute statement",
+                new ConstraintViolationException(
+                    "null value in column violates not-null constraint",
+                    new SQLException("not null", "23502"),
+                    "uk_member_phone_number"
+                )
+            ));
+
+        final ResultActions result = mockMvc
+            .perform(patch("/api/members/profile/me")
+                .header("X-Authenticated-Member-Id", "1")
+                .contentType("application/json")
+                .content(objectMapper.writeValueAsString(validUpdateRequest())));
+
+        result
+            .andExpect(status().isInternalServerError())
+            .andExpect(jsonPath("$.code")
+                .value(CommonErrorCode.INTERNAL_SERVER_APPLICATION_ERROR.getValue()));
+    }
+
+    @Test
+    @DisplayName("제약 위반 원인을 알 수 없어도 예외 없이 상태코드 500을 반환한다")
+    void updateProfile_constraintViolationWithoutCause() throws Exception {
+
+        given(memberService.updateProfile(any(), any()))
+            .willThrow(new DataIntegrityViolationException("could not execute statement"));
+
+        final ResultActions result = mockMvc
+            .perform(patch("/api/members/profile/me")
+                .header("X-Authenticated-Member-Id", "1")
+                .contentType("application/json")
+                .content(objectMapper.writeValueAsString(validUpdateRequest())));
+
+        result
+            .andExpect(status().isInternalServerError())
+            .andExpect(jsonPath("$.code")
+                .value(CommonErrorCode.INTERNAL_SERVER_APPLICATION_ERROR.getValue()));
+    }
+
+    @Test
     @DisplayName("판매자 등록에 성공하면 상태코드 200을 반환한다")
     void registerSeller_success() throws Exception {
 
-        RegisterSellerRequest request = new RegisterSellerRequest("국민은행", "123-456-789");
+        RegisterSellerRequest request = new RegisterSellerRequest("국민은행", "1234567890");
 
         final ResultActions result = mockMvc
             .perform(post("/api/members/me/seller")
@@ -147,7 +319,7 @@ public class MemberTest {
     @DisplayName("이미 판매자로 등록된 회원이 판매자 등록을 요청하면 상태코드 400과 ALREADY_SELLER 에러코드를 반환한다")
     void registerSeller_alreadySeller() throws Exception {
 
-        RegisterSellerRequest request = new RegisterSellerRequest("국민은행", "123-456-789");
+        RegisterSellerRequest request = new RegisterSellerRequest("국민은행", "1234567890");
 
         willThrow(new BusinessException(MemberErrorCode.ALREADY_SELLER))
             .given(memberService).registerSeller(eq(1L), any());
@@ -165,10 +337,27 @@ public class MemberTest {
     }
 
     @Test
+    @DisplayName("숫자가 아닌 계좌번호로 판매자 등록을 요청하면 상태코드 400과 INVALID_INPUT 에러코드를 반환한다")
+    void registerSeller_nonNumericAccount() throws Exception {
+
+        RegisterSellerRequest request = new RegisterSellerRequest("국민은행", "123-456-7890");
+
+        final ResultActions result = mockMvc
+            .perform(post("/api/members/me/seller")
+                .header("X-Authenticated-Member-Id", "1")
+                .contentType("application/json")
+                .content(objectMapper.writeValueAsString(request)));
+
+        result
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value(MemberErrorCode.INVALID_INPUT.getValue()));
+    }
+
+    @Test
     @DisplayName("판매자 계좌 수정에 성공하면 상태코드 200을 반환한다")
     void updateSellerAccount_success() throws Exception {
 
-        UpdateSellerAccountRequest request = new UpdateSellerAccountRequest("신한은행", "987-654-321");
+        UpdateSellerAccountRequest request = new UpdateSellerAccountRequest("신한은행", "9876543210");
 
         final ResultActions result = mockMvc
             .perform(patch("/api/members/me/seller")
@@ -182,10 +371,27 @@ public class MemberTest {
     }
 
     @Test
+    @DisplayName("숫자가 아닌 계좌번호로 계좌 수정을 요청하면 상태코드 400과 INVALID_INPUT 에러코드를 반환한다")
+    void updateSellerAccount_nonNumericAccount() throws Exception {
+
+        UpdateSellerAccountRequest request = new UpdateSellerAccountRequest("신한은행", "987-654-3210");
+
+        final ResultActions result = mockMvc
+            .perform(patch("/api/members/me/seller")
+                .header("X-Authenticated-Member-Id", "1")
+                .contentType("application/json")
+                .content(objectMapper.writeValueAsString(request)));
+
+        result
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value(MemberErrorCode.INVALID_INPUT.getValue()));
+    }
+
+    @Test
     @DisplayName("판매자가 아닌 회원이 계좌 수정을 요청하면 상태코드 400과 NOT_SELLER 에러코드를 반환한다")
     void updateSellerAccount_notSeller() throws Exception {
 
-        UpdateSellerAccountRequest request = new UpdateSellerAccountRequest("신한은행", "987-654-321");
+        UpdateSellerAccountRequest request = new UpdateSellerAccountRequest("신한은행", "9876543210");
 
         willThrow(new BusinessException(MemberErrorCode.NOT_SELLER))
             .given(memberService).updateSellerAccount(eq(1L), any());
@@ -204,7 +410,7 @@ public class MemberTest {
 
     @Test
     @DisplayName("판매자 등록 해지에 성공하면 상태코드 200을 반환한다")
-    void unRegister_success() throws Exception {
+    void withdrawSeller_success() throws Exception {
 
         final ResultActions result = mockMvc
             .perform(delete("/api/members/me/seller")
@@ -217,10 +423,10 @@ public class MemberTest {
 
     @Test
     @DisplayName("등록된 판매상품이 있으면 판매자 등록 해지 요청에 상태코드 400과 WITHDRAWAL_FAILED 에러코드를 반환한다")
-    void unRegister_hasProduct() throws Exception {
+    void withdrawSeller_hasProduct() throws Exception {
 
         willThrow(new BusinessException(MemberErrorCode.WITHDRAWAL_FAILED))
-            .given(memberService).unRegister(1L);
+            .given(memberService).withdrawSeller(1L);
 
         final ResultActions result = mockMvc
             .perform(delete("/api/members/me/seller")
@@ -234,10 +440,10 @@ public class MemberTest {
 
     @Test
     @DisplayName("판매자 계좌 조회에 성공하면 상태코드 200과 마스킹된 계좌 정보를 반환한다")
-    void getMyAccount_success() throws Exception {
+    void getSellerAccount_success() throws Exception {
 
-        given(memberService.getMyAccount(1L))
-            .willReturn(new SellerInfo("국민은행", "123*****789"));
+        given(memberService.getSellerAccount(1L))
+            .willReturn(new SellerInfo("국민은행", "123****890"));
 
         final ResultActions result = mockMvc
             .perform(get("/api/members/me/seller")
@@ -246,14 +452,14 @@ public class MemberTest {
         result
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.bank").value("국민은행"))
-            .andExpect(jsonPath("$.data.account").value("123*****789"));
+            .andExpect(jsonPath("$.data.account").value("123****890"));
     }
 
     @Test
     @DisplayName("판매자가 아닌 회원이 계좌 조회를 요청하면 상태코드 400과 NOT_SELLER 에러코드를 반환한다")
-    void getMyAccount_notSeller() throws Exception {
+    void getSellerAccount_notSeller() throws Exception {
 
-        given(memberService.getMyAccount(1L))
+        given(memberService.getSellerAccount(1L))
             .willThrow(new BusinessException(MemberErrorCode.NOT_SELLER));
 
         final ResultActions result = mockMvc

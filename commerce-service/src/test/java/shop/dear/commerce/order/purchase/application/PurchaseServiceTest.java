@@ -8,18 +8,23 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import shop.dear.commerce.order.purchase.application.dto.CreatePurchaseCommand;
 import shop.dear.commerce.order.purchase.application.port.MemberPort;
 import shop.dear.commerce.order.purchase.application.port.ProductPort;
 import shop.dear.commerce.order.purchase.application.port.PurchaseEventPublisher;
 import shop.dear.commerce.order.purchase.application.port.dto.ProductInfo;
+import shop.dear.commerce.order.purchase.application.port.dto.ProductSaleType;
+import shop.dear.commerce.order.purchase.application.port.dto.ProductStatus;
 import shop.dear.commerce.order.purchase.domain.constant.PurchaseStatus;
 import shop.dear.commerce.order.purchase.domain.exception.PurchaseErrorCode;
 import shop.dear.commerce.order.purchase.domain.model.Purchase;
 import shop.dear.commerce.order.purchase.domain.repository.PurchaseRepository;
 import shop.dear.common.event.financial.PaymentRequestedEvent;
-import shop.dear.common.event.order.FinishedOrderEvent;
-import shop.dear.common.event.order.OrderType;
+import shop.dear.common.type.OrderType;
 import shop.dear.common.exception.BusinessException;
 
 import java.math.BigDecimal;
@@ -32,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willDoNothing;
 import static org.mockito.BDDMockito.willThrow;
@@ -54,6 +60,9 @@ class PurchaseServiceTest {
     @Mock
     private MemberPort memberPort;
 
+    @Mock
+    private PurchaseExpirationProcessor purchaseExpirationProcessor;
+
     @InjectMocks
     private PurchaseService purchaseService;
 
@@ -70,6 +79,7 @@ class PurchaseServiceTest {
 
             stubMemberExists(1L);
             given(productPort.getProduct(10L)).willReturn(product);
+            given(productPort.tradeProduct(10L)).willReturn(true);
             given(purchaseRepository.save(any(Purchase.class)))
                     .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -83,17 +93,18 @@ class PurchaseServiceTest {
             assertThat(purchase.getAmount()).isEqualTo(new BigDecimal("10000"));
 
             verifyMemberExists(1L);
+            verify(productPort).tradeProduct(10L);
             verify(purchaseRepository).save(any(Purchase.class));
 
-            final ArgumentCaptor<PaymentRequestedEvent> captor =
+            final ArgumentCaptor<PaymentRequestedEvent> paymentCaptor =
                     ArgumentCaptor.forClass(PaymentRequestedEvent.class);
-            verify(purchaseEventPublisher).publish(captor.capture());
+            verify(purchaseEventPublisher).publish(paymentCaptor.capture());
 
-            final PaymentRequestedEvent event = captor.getValue();
-            assertThat(event.orderId()).isEqualTo(purchase.getId());
-            assertThat(event.memberId()).isEqualTo(purchase.getBuyerId());
-            assertThat(event.amount()).isEqualTo(purchase.getAmount());
-            assertThat(event.orderType()).isEqualTo(OrderType.PURCHASE);
+            final PaymentRequestedEvent paymentEvent = paymentCaptor.getValue();
+            assertThat(paymentEvent.orderId()).isEqualTo(purchase.getId());
+            assertThat(paymentEvent.memberId()).isEqualTo(purchase.getBuyerId());
+            assertThat(paymentEvent.amount()).isEqualTo(purchase.getAmount());
+            assertThat(paymentEvent.orderType()).isEqualTo(OrderType.PURCHASE.name());
         }
 
         @Test
@@ -117,8 +128,79 @@ class PurchaseServiceTest {
             verifyNoInteractions(purchaseEventPublisher);
         }
 
+        @Test
+        @DisplayName("본인이 판매하는 상품이면 예외를 던진다")
+        void throwsException_whenBuyerIsSeller() {
+            // given
+            final CreatePurchaseCommand command = createCommand(1L, 10L);
+            final ProductInfo product = productInfo(1L, "ON_SALE", "IMMEDIATE");
+
+            stubMemberExists(1L);
+            given(productPort.getProduct(10L)).willReturn(product);
+
+            // when & then
+            assertThatThrownBy(() ->
+                    purchaseService.createPurchase(command)
+            )
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PurchaseErrorCode.CANNOT_PURCHASE_OWN_PRODUCT);
+
+            verify(purchaseRepository, never()).save(any(Purchase.class));
+            verifyNoInteractions(purchaseEventPublisher);
+        }
+
+        @Test
+        @DisplayName("판매 중인 상품이 아니면 예외를 던진다")
+        void throwsException_whenProductNotOnSale() {
+            // given
+            final CreatePurchaseCommand command = createCommand(1L, 10L);
+            final ProductInfo product = productInfo(2L, "SOLD_OUT", "IMMEDIATE");
+
+            stubMemberExists(1L);
+            given(productPort.getProduct(10L)).willReturn(product);
+
+            // when & then
+            assertThatThrownBy(() ->
+                    purchaseService.createPurchase(command)
+            )
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PurchaseErrorCode.PRODUCT_NOT_ON_SALE);
+
+            verify(purchaseRepository, never()).save(any(Purchase.class));
+            verifyNoInteractions(purchaseEventPublisher);
+        }
+
+        @Test
+        @DisplayName("즉시구매 가능한 상품이 아니면 예외를 던진다")
+        void throwsException_whenProductNotImmediatePurchase() {
+            // given
+            final CreatePurchaseCommand command = createCommand(1L, 10L);
+            final ProductInfo product = productInfo(2L, "ON_SALE", "OFFER");
+
+            stubMemberExists(1L);
+            given(productPort.getProduct(10L)).willReturn(product);
+
+            // when & then
+            assertThatThrownBy(() ->
+                    purchaseService.createPurchase(command)
+            )
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PurchaseErrorCode.PRODUCT_NOT_FOR_IMMEDIATE_PURCHASE);
+
+            verify(purchaseRepository, never()).save(any(Purchase.class));
+            verifyNoInteractions(purchaseEventPublisher);
+        }
+
         private ProductInfo productInfo(
                 final Long sellerId
+        ) {
+            return productInfo(sellerId, "ON_SALE", "IMMEDIATE");
+        }
+
+        private ProductInfo productInfo(
+                final Long sellerId,
+                final String status,
+                final String saleType
         ) {
             return new ProductInfo(
                     sellerId,
@@ -129,6 +211,8 @@ class PurchaseServiceTest {
                     "MODEL-001",
                     "카테고리",
                     LocalDate.of(2026, 1, 1),
+                    ProductSaleType.valueOf(saleType),
+                    ProductStatus.valueOf(status),
                     0L,
                     "상품 설명",
                     LocalDateTime.now()
@@ -314,16 +398,18 @@ class PurchaseServiceTest {
                     null
             );
 
+            final Pageable pageable = PageRequest.of(0, 10);
+
             stubMemberExists(1L);
-            given(purchaseRepository.findByBuyerId(1L))
-                    .willReturn(List.of(purchase1, purchase2));
+            given(purchaseRepository.findByBuyerId(1L, pageable))
+                    .willReturn(new PageImpl<>(List.of(purchase1, purchase2), pageable, 2));
 
             // when
-            final List<Purchase> result =
-                    purchaseService.getPurchasesByBuyerId(1L);
+            final Page<Purchase> result =
+                    purchaseService.getPurchasesByBuyerId(1L, pageable);
 
             // then
-            assertThat(result)
+            assertThat(result.getContent())
                     .hasSize(2)
                     .containsExactly(purchase1, purchase2);
 
@@ -334,18 +420,64 @@ class PurchaseServiceTest {
         @DisplayName("구매 기록이 없으면 빈 목록을 반환한다")
         void returnsEmptyList_whenBuyerHasNoPurchases() {
             // given
+            final Pageable pageable = PageRequest.of(0, 10);
+
             stubMemberExists(1L);
-            given(purchaseRepository.findByBuyerId(1L))
+            given(purchaseRepository.findByBuyerId(1L, pageable))
+                    .willReturn(new PageImpl<>(List.of(), pageable, 0));
+
+            // when
+            final Page<Purchase> result =
+                    purchaseService.getPurchasesByBuyerId(1L, pageable);
+
+            // then
+            assertThat(result.getContent()).isEmpty();
+
+            verifyMemberExists(1L);
+        }
+    }
+
+    @Nested
+    @DisplayName("expireOverduePurchases")
+    class ExpireOverduePurchases {
+
+        @Test
+        @DisplayName("결제 기한이 지난 PENDING_PAYMENT 구매를 만료 처리기에 위임한다")
+        void expiresOverduePurchases() {
+            // given
+            final Purchase overduePurchase = Purchase.create(
+                    1L,
+                    2L,
+                    3L,
+                    BigDecimal.valueOf(10000),
+                    "delivery",
+                    LocalDateTime.now().minusMinutes(1)
+            );
+
+            given(purchaseRepository.findAllByStatusAndPaymentDueAtBefore(
+                    eq(PurchaseStatus.PENDING_PAYMENT), any(LocalDateTime.class)))
+                    .willReturn(List.of(overduePurchase));
+
+            // when
+            purchaseService.expireOverduePurchases();
+
+            // then
+            verify(purchaseExpirationProcessor).expire(overduePurchase.getId());
+        }
+
+        @Test
+        @DisplayName("만료 대상이 없으면 이벤트를 발행하지 않는다")
+        void doesNothing_whenNoOverduePurchases() {
+            // given
+            given(purchaseRepository.findAllByStatusAndPaymentDueAtBefore(
+                    eq(PurchaseStatus.PENDING_PAYMENT), any(LocalDateTime.class)))
                     .willReturn(List.of());
 
             // when
-            final List<Purchase> result =
-                    purchaseService.getPurchasesByBuyerId(1L);
+            purchaseService.expireOverduePurchases();
 
             // then
-            assertThat(result).isEmpty();
-
-            verifyMemberExists(1L);
+            verify(purchaseExpirationProcessor, never()).expire(anyLong());
         }
     }
 

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Page;
 import org.springframework.transaction.annotation.Transactional;
 import shop.dear.commerce.product.application.dto.GetProductDetailDto;
 import shop.dear.commerce.product.application.dto.GetProductDto;
@@ -12,6 +13,7 @@ import shop.dear.commerce.product.application.dto.GetSellerProductDto;
 import shop.dear.commerce.product.application.dto.MemberProductExistsDto;
 import shop.dear.commerce.product.application.dto.PresignedUrlInfoDto;
 import shop.dear.commerce.product.application.dto.ScrapProductInfoDto;
+import shop.dear.commerce.product.application.dto.TradeProductDto;
 import shop.dear.commerce.product.application.dto.command.CreateProductCommand;
 import shop.dear.commerce.product.application.dto.command.GeneratePresignedUrlsCommand;
 import shop.dear.commerce.product.application.dto.command.GetScrapProductCommand;
@@ -31,10 +33,11 @@ import shop.dear.commerce.product.domain.model.Price;
 import shop.dear.commerce.product.domain.model.Product;
 import shop.dear.commerce.product.domain.model.ProductImage;
 import shop.dear.commerce.product.domain.repository.ProductRepository;
+import shop.dear.commerce.product.infrastructure.outbox.ProductOutboxAppender;
+import shop.dear.common.pagination.PaginationRequest;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import static java.time.temporal.ChronoUnit.MICROS;
@@ -56,6 +59,9 @@ class ProductServiceTest {
     @Autowired
     private ProductScheduler productScheduler;
 
+    @Autowired
+    private ProductOutboxAppender productOutboxAppender;
+
     @BeforeEach
     void setUp() {
         final MemberPort fakeMemberPort = new FakeMemberPort();
@@ -68,7 +74,8 @@ class ProductServiceTest {
             fakeMemberPort,
             fakeOfferPort,
             fakeProductEventPublisher,
-            fakePresignedUrlGenerator
+            fakePresignedUrlGenerator,
+            productOutboxAppender
         );
     }
 
@@ -231,7 +238,7 @@ class ProductServiceTest {
         assertThat(products).isEmpty();
     }
 
-    @DisplayName("유효한 값(sellerId)이 들어오면 해당 사용자가 등록한 판매 예정 및 판매중인 상품이 존재하는지 여부를 반환한다.")
+    @DisplayName("유효한 값(sellerId)이 들어오면 해당 사용자가 등록한 판매 예정 및 판매중, 거래중인 상품이 존재하는지 여부를 반환한다.")
     @Test
     void givenSellerId_whenGetMemberProductExists_thenReturnExists() {
         //Given
@@ -246,18 +253,25 @@ class ProductServiceTest {
 
         final Long sellerId3 = 3L;
         final Product product3 = createProduct(sellerId3);
-        product3.changeStatusToSoldOut();
+        product3.changeStatusToTrading();
         productRepository.save(product3);
+
+        final Long sellerId4 = 4L;
+        final Product product4 = createProduct(sellerId4);
+        product4.changeStatusToSoldOut();
+        productRepository.save(product4);
 
         //When
         final MemberProductExistsDto result1 = productService.getMemberProductExists(sellerId1);
         final MemberProductExistsDto result2 = productService.getMemberProductExists(sellerId2);
         final MemberProductExistsDto result3 = productService.getMemberProductExists(sellerId3);
+        final MemberProductExistsDto result4 = productService.getMemberProductExists(sellerId4);
 
         //Then
         assertThat(result1.exists()).isEqualTo(true);
         assertThat(result2.exists()).isEqualTo(true);
-        assertThat(result3.exists()).isEqualTo(false);
+        assertThat(result3.exists()).isEqualTo(true);
+        assertThat(result4.exists()).isEqualTo(false);
     }
 
     @DisplayName("유효한 값(memberId, product ids)이 들어오면 해당 id에 맞는 상품을 반환한다.")
@@ -355,17 +369,97 @@ class ProductServiceTest {
         final Product savedProduct = productRepository.save(product);
 
         //When
-        final List<GetSellerProductDto> result = productService.getSellerProducts(sellerId);
+        final PaginationRequest paginationRequest = new PaginationRequest(1, 10, 2, 2);
+        final Page<GetSellerProductDto> result = productService.getSellerProducts(sellerId, paginationRequest.toPageable());
 
         //Then
-        assertThat(result.size()).isEqualTo(1);
-        assertThat(result.getFirst().id()).isEqualTo(savedProduct.getId());
-        assertThat(result.getFirst().status()).isEqualTo(savedProduct.getStatus().toString());
-        assertThat(result.getFirst().url()).isEqualTo(savedProduct.getImages().getFirst().getUrl());
-        assertThat(result.getFirst().name()).isEqualTo(savedProduct.getName());
-        assertThat(result.getFirst().brand()).isEqualTo(savedProduct.getBrand());
-        assertThat(result.getFirst().price()).isEqualTo(savedProduct.getPrice().getValue());
-        assertThat(result.getFirst().viewCount()).isEqualTo(savedProduct.getViewCount());
+        assertThat(result.getContent().size()).isEqualTo(1);
+        assertThat(result.getContent().getFirst().id()).isEqualTo(savedProduct.getId());
+        assertThat(result.getContent().getFirst().status()).isEqualTo(savedProduct.getStatus().toString());
+        assertThat(result.getContent().getFirst().url()).isEqualTo(savedProduct.getImages().getFirst().getUrl());
+        assertThat(result.getContent().getFirst().name()).isEqualTo(savedProduct.getName());
+        assertThat(result.getContent().getFirst().brand()).isEqualTo(savedProduct.getBrand());
+        assertThat(result.getContent().getFirst().price()).isEqualTo(savedProduct.getPrice().getValue());
+        assertThat(result.getContent().getFirst().viewCount()).isEqualTo(savedProduct.getViewCount());
+    }
+
+    @DisplayName("삭제된 상품이면 판매자 상품 목록에 조회되지 않는다.")
+    @Test
+    void givenSellerId_whenGetSellerProductIsAlreadyDeleted_thenReturnProducts() {
+        //Given
+        final Long sellerId = 1L;
+        final Product product = createProduct(sellerId);
+        product.addImage("test1.png", 1);
+        final Product savedProduct = productRepository.save(product);
+
+        productService.deleteProduct(sellerId, savedProduct.getId());
+
+        //When
+        final PaginationRequest paginationRequest = new PaginationRequest(1, 10, 2, 2);
+        final Page<GetSellerProductDto> result = productService.getSellerProducts(sellerId, paginationRequest.toPageable());
+
+        //Then
+        assertThat(result.getTotalElements()).isEqualTo(0);
+    }
+
+    @DisplayName("판매자가 등록한 상품목록 조회 시 페이징 처리한다.")
+    @Test
+    void givenPageInfo_whenGetSellerProducts_thenReturnPagingProducts() {
+        //Given
+        final Long sellerId = 1L;
+
+        final Product product1 = createProduct(sellerId);
+        product1.addImage("test1.png", 1);
+        final Product savedProduct1 = productRepository.save(product1);
+
+        final Product product2 = createProduct(sellerId);
+        product2.addImage("test2.png", 1);
+        final Product savedProduct2 = productRepository.save(product2);
+
+        final Product product3 = createProduct(sellerId);
+        product3.addImage("test2.png", 3);
+        final Product savedProduct3 = productRepository.save(product3);
+
+        //When
+        final PaginationRequest paginationRequest = new PaginationRequest(1, 10, 2, 2);
+        final Page<GetSellerProductDto> result = productService.getSellerProducts(sellerId, paginationRequest.toPageable());
+
+        //Then
+        assertThat(result.getTotalElements()).isEqualTo(3);
+        assertThat(result.getTotalPages()).isEqualTo(2);
+        assertThat(result.getContent()).hasSize(2);
+        assertThat(result.getNumber()).isEqualTo(0);
+    }
+
+    @DisplayName("판매자가 등록한 상품목록 조회에서 마지막 페이지 조회 시 남은 데이터를 반환한다.")
+    @Test
+    void givenPageInfo_whenGetSellerProducts_thenReturnRemainProducts() {
+        // Given
+        final Long sellerId = 1L;
+
+        final Product product1 = createProduct(sellerId, ProductSaleType.OFFER);  // saleType = OFFER, status = PREPARING
+        product1.addImage("test1.png", 1);
+        final Product savedProduct1 = productRepository.save(product1);
+
+        final Product product2 = createProduct(sellerId, ProductSaleType.IMMEDIATE); // saleType = IMMEDIATE, status = PREPARING
+        product2.addImage("test2.png", 1);
+        final Product savedProduct2 = productRepository.save(product2);
+
+        final Product product3 = createProduct(sellerId, ProductSaleType.OFFER);  // saleType = OFFER, status = ON_SALE
+        product3.addImage("test3.png", 1);
+        final Product savedProduct3 = productRepository.save(product3);
+
+        // When
+        final PaginationRequest paginationRequest = new PaginationRequest(2, 10, 2, 2);
+        final Page<GetSellerProductDto> result = productService.getSellerProducts(sellerId, paginationRequest.toPageable());
+
+        // Then
+        assertThat(result.getTotalElements()).isEqualTo(3);
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getNumber()).isEqualTo(1);
+        assertThat(result.isFirst()).isFalse();
+        assertThat(result.isLast()).isTrue();
+        assertThat(result.hasNext()).isFalse();
     }
 
     @DisplayName("유효한 값(saleType, status)이 들어오면 해당 상태에 맞는 상품들을 조회한다.")
@@ -393,13 +487,14 @@ class ProductServiceTest {
         final ProductCategory category = ProductCategory.SNEAKERS;
 
         // When
-        final List<GetProductDto> result = productService.getAllProduct(targetSaleType, targetStatus, date, category);
+        final PaginationRequest paginationRequest = new PaginationRequest(1, 10, 2, 2);
+        final Page<GetProductDto> result = productService.getAllProduct(targetSaleType, targetStatus, date, category, paginationRequest.toPageable());
 
         // Then
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).id()).isEqualTo(savedProduct1.getId());
-        assertThat(result.get(0).saleType()).isEqualTo(targetSaleType.toString());
-        assertThat(result.get(0).status()).isEqualTo(targetStatus.toString());
+        assertThat(result.getTotalElements()).isEqualTo(1);
+        assertThat(result.getContent().get(0).id()).isEqualTo(savedProduct1.getId());
+        assertThat(result.getContent().get(0).saleType()).isEqualTo(targetSaleType.toString());
+        assertThat(result.getContent().get(0).status()).isEqualTo(targetStatus.toString());
     }
 
     @DisplayName("파라미터(saleType, status, createdAt)가 null로 주어지면 전체 상품 목록을 조회한다.")
@@ -418,10 +513,11 @@ class ProductServiceTest {
         productRepository.save(product2);
 
         // When
-        final List<GetProductDto> result = productService.getAllProduct(null, null, null, null);
+        final PaginationRequest paginationRequest = new PaginationRequest(1, 10, 2, 2);
+        final Page<GetProductDto> result = productService.getAllProduct(null, null, null, null, paginationRequest.toPageable());
 
         // Then
-        assertThat(result).hasSize(2);
+        assertThat(result.getTotalElements()).isEqualTo(2);
     }
 
     @DisplayName("조건에 해당하는 상품이 없으면 빈 리스트를 반환한다.")
@@ -433,15 +529,103 @@ class ProductServiceTest {
         productRepository.save(product);
 
         // When
-        final List<GetProductDto> result = productService.getAllProduct(
+        final PaginationRequest paginationRequest = new PaginationRequest(1, 10, 2, 2);
+        final Page<GetProductDto> result = productService.getAllProduct(
             ProductSaleType.IMMEDIATE,
             ProductStatus.SOLD_OUT,
             null,
-            ProductCategory.BOOTS
+            ProductCategory.BOOTS,
+            paginationRequest.toPageable()
         );
 
         // Then
-        assertThat(result).isEmpty();
+        assertThat(result.getTotalElements()).isEqualTo(0);
+    }
+
+    @DisplayName("삭제된 상품이면 상품 목록에 조회되지 않는다.")
+    @Test
+    void givenProductDelete_whenGetAllProduct_thenReturnEmptyList() {
+        // Given
+        final Long sellerId = 1L;
+        final Product product = createProduct(sellerId, ProductSaleType.OFFER); // status = PREPARING
+        final Product savedProduct = productRepository.save(product);
+
+        productService.deleteProduct(sellerId, savedProduct.getId());
+
+        // When
+        final PaginationRequest paginationRequest = new PaginationRequest(1, 10, 2, 2);
+        final Page<GetProductDto> result = productService.getAllProduct(
+            null,
+            null,
+            null,
+            null,
+            paginationRequest.toPageable()
+        );
+
+        // Then
+        assertThat(result.getTotalElements()).isEqualTo(0);
+    }
+
+    @DisplayName("상품 목록 조회 시 페이징 처리한다.")
+    @Test
+    void givenPageInfo_whenGetAllProduct_thenReturnPagingProducts() {
+        // Given
+        final Long sellerId = 1L;
+
+        final Product product1 = createProduct(sellerId, ProductSaleType.OFFER);  // saleType = OFFER, status = PREPARING
+        product1.addImage("test1.png", 1);
+        final Product savedProduct1 = productRepository.save(product1);
+
+        final Product product2 = createProduct(sellerId, ProductSaleType.IMMEDIATE); // saleType = IMMEDIATE, status = PREPARING
+        product2.addImage("test2.png", 1);
+        final Product savedProduct2 = productRepository.save(product2);
+
+        final Product product3 = createProduct(sellerId, ProductSaleType.OFFER);  // saleType = OFFER, status = ON_SALE
+        product3.addImage("test3.png", 1);
+        product3.changeStatusToOnSale();
+        final Product savedProduct3 = productRepository.save(product3);
+
+        // When
+        final PaginationRequest paginationRequest = new PaginationRequest(1, 10, 2, 2);
+        final Page<GetProductDto> result = productService.getAllProduct(null, null, null, null, paginationRequest.toPageable());
+
+        // Then
+        assertThat(result.getTotalElements()).isEqualTo(3);
+        assertThat(result.getTotalPages()).isEqualTo(2);
+        assertThat(result.getContent()).hasSize(2);
+        assertThat(result.getNumber()).isEqualTo(0);
+    }
+
+    @DisplayName("상품 목록 조회에서 마지막 페이지 조회 시 남은 데이터를 반환한다.")
+    @Test
+    void givenPageInfo_whenGetAllProduct_thenReturnRemainProducts() {
+        // Given
+        final Long sellerId = 1L;
+
+        final Product product1 = createProduct(sellerId, ProductSaleType.OFFER);  // saleType = OFFER, status = PREPARING
+        product1.addImage("test1.png", 1);
+        final Product savedProduct1 = productRepository.save(product1);
+
+        final Product product2 = createProduct(sellerId, ProductSaleType.IMMEDIATE); // saleType = IMMEDIATE, status = PREPARING
+        product2.addImage("test2.png", 1);
+        final Product savedProduct2 = productRepository.save(product2);
+
+        final Product product3 = createProduct(sellerId, ProductSaleType.OFFER);  // saleType = OFFER, status = ON_SALE
+        product3.addImage("test3.png", 1);
+        product3.changeStatusToOnSale();
+        final Product savedProduct3 = productRepository.save(product3);
+
+        // When
+        final PaginationRequest paginationRequest = new PaginationRequest(2, 10, 2, 2);
+        final Page<GetProductDto> result = productService.getAllProduct(null, null, null, null, paginationRequest.toPageable());
+
+        // Then
+        assertThat(result.getTotalElements()).isEqualTo(3);
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getNumber()).isEqualTo(1);
+        assertThat(result.isFirst()).isFalse();
+        assertThat(result.isLast()).isTrue();
+        assertThat(result.hasNext()).isFalse();
     }
 
     @DisplayName("등록된 상품의 상태를 판매중으로 변경한다.")
@@ -483,5 +667,38 @@ class ProductServiceTest {
         //Then
         assertThat(savedProduct1.getStatus()).isEqualTo(ProductStatus.SOLD_OUT);
         assertThat(savedProduct2.getStatus()).isEqualTo(ProductStatus.SOLD_OUT);
+    }
+
+    @DisplayName("판매중인 상품의 상태를 거래중으로 변경한다.")
+    @Test
+    void givenProductId_whenTradeProduct_thenChangeStatusTrade() {
+        //Given
+        final Long memberId = 1L;
+        final Product product = createProduct(memberId);
+        product.changeStatusToOnSale();
+
+        final Product savedProduct = productRepository.save(product);
+
+        //When
+        final TradeProductDto result = productService.tradeProduct(memberId, savedProduct.getId());
+
+        //Then
+        assertThat(result.isChanged()).isTrue();
+    }
+
+    @DisplayName("구매 취소 시 상품의 상태를 판매중으로 변경한다.")
+    @Test
+    void givenProductId_whenCanceledPurchase_thenChangeProductStatusIsOnSale() {
+        //Given
+        final Long memberId = 1L;
+        final Product product = createProduct(memberId);
+        product.changeStatusToTrading();
+        final Product savedProduct = productRepository.save(product);
+
+        //When
+        productService.canceledPurchase(savedProduct.getId());
+
+        //Then
+        assertThat(savedProduct.getStatus()).isEqualTo(ProductStatus.ON_SALE);
     }
 }

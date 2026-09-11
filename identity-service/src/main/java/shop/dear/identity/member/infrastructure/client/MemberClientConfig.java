@@ -19,8 +19,15 @@ public class MemberClientConfig {
     }
 
     @Bean
-    RestClient walletRestClient(@Value("${identity.client.commerce-base-url}") String baseUrl) {
+    RestClient walletRestClient(@Value("${identity.client.financial-base-url}") String baseUrl) {
 
         return internalRestClientFactory.builder(baseUrl).build();
     }
+
+    @Bean
+    RestClient authRestClient(@Value("${identity.client.auth-base-url}") String baseUrl) {
+
+        return internalRestClientFactory.builder(baseUrl).build();
+    }
+
 }

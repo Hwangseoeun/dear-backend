@@ -3,6 +3,8 @@ package shop.dear.identity.member.presentation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientAutoConfiguration;
+import org.springframework.boot.security.oauth2.client.autoconfigure.servlet.OAuth2ClientWebSecurityAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.ResultActions;
@@ -20,7 +22,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(InternalMemberController.class)
+@WebMvcTest(
+        value = InternalMemberController.class,
+        excludeAutoConfiguration = {
+                OAuth2ClientAutoConfiguration.class,
+                OAuth2ClientWebSecurityAutoConfiguration.class
+        }
+)
 class InternalMemberTest {
 
     @Autowired
@@ -89,9 +97,9 @@ class InternalMemberTest {
 
     @Test
     @DisplayName("유효한 회원을 조회하면 exists true를 반환한다")
-    void existsMember_true() throws Exception {
+    void isActiveMember_true() throws Exception {
 
-        given(memberService.existsMember(1L)).willReturn(true);
+        given(memberService.isActiveMember(1L)).willReturn(true);
 
         final ResultActions result = mockMvc
             .perform(get("/internal/members")
@@ -105,9 +113,9 @@ class InternalMemberTest {
 
     @Test
     @DisplayName("탈퇴한 회원을 조회하면 exists false를 반환한다")
-    void existsMember_false() throws Exception {
+    void isActiveMember_false() throws Exception {
 
-        given(memberService.existsMember(1L)).willReturn(false);
+        given(memberService.isActiveMember(1L)).willReturn(false);
 
         final ResultActions result = mockMvc
             .perform(get("/internal/members")

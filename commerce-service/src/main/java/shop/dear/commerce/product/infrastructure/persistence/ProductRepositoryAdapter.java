@@ -1,6 +1,8 @@
 package shop.dear.commerce.product.infrastructure.persistence;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 import shop.dear.commerce.product.domain.constant.ProductCategory;
 import shop.dear.commerce.product.domain.constant.ProductSaleType;
@@ -58,23 +60,30 @@ public class ProductRepositoryAdapter implements ProductRepository {
     }
 
     @Override
-    public List<Product> findAllBySellerIdAndDeletedAtIsNull(final Long sellerId) {
-        return productRepository.findAllBySellerIdAndDeletedAtIsNull(sellerId);
+    public Page<Product> findAllBySellerId(final Long sellerId, final Pageable pageable) {
+        return productRepository.findAllBySellerId(sellerId, pageable);
     }
 
     @Override
-    public List<Product> findAllBySaleTypeAndStatusAndCreatedAtAndCategoryAndDeletedAtIsNull(
+    public Page<Product> findAllBySaleTypeAndStatusAndCreatedAtAndCategory(
         final ProductSaleType saleType,
         final ProductStatus status,
         final LocalDateTime startDate,
         final LocalDateTime endDate,
-        final ProductCategory category
+        final ProductCategory category,
+        final Pageable pageable
         ) {
-        return productRepository.findAllBySaleTypeAndStatusAndCreatedAtAndCategoryAndDeletedAtIsNull(saleType, status, startDate, endDate, category);
+        return productRepository.findAllBySaleTypeAndStatusAndCreatedAtAndCategory(saleType, status, startDate, endDate, category, pageable);
     }
 
     @Override
     public int updateStatusToOnSale(final LocalDateTime startTime, final LocalDateTime endTime) {
         return productRepository.updateStatusToOnSale(startTime, endTime);
+    }
+
+    @Override
+    public Product findByIdWithPessimisticWrite(final Long productId) {
+        return productRepository.findByIdWithPessimisticWrite(productId)
+            .orElseThrow(() -> new BusinessException(INVALID_PRODUCT));
     }
 }

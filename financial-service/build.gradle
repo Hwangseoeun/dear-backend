@@ -1,0 +1,30 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+dependencies {
+    implementation project(':common:common-monitoring')
+    implementation project(':common:common-web')
+    implementation project(':common:common-jpa')
+    implementation project(':common:common-messaging')
+
+    // common-messaging 이 implementation 으로 선언해 감춰 둔 타입을 여기서 직접 참조한다.
+    // SettlementInboxStreamConfig 가 Environment 주입과 StreamListenerContainer 빈 등록에 쓰므로
+    // 이 줄을 빼면 컴파일이 깨진다.
+    implementation 'org.springframework.amqp:spring-rabbit-stream'
+
+    // PostgreSQL
+    runtimeOnly 'org.postgresql:postgresql'
+
+    // ShedLock (settlement / wallet 스케줄러용)
+    implementation 'net.javacrumbs.shedlock:shedlock-spring:5.15.1'
+    implementation 'net.javacrumbs.shedlock:shedlock-provider-jdbc-template:5.15.1'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'com.fasterxml.jackson.core:jackson-databind'
+}
+
+// plain jar 생성 false
+tasks.named('jar') {
+    enabled = false
+}

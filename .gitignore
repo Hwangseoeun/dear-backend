@@ -182,7 +182,13 @@ gradle-app.setting
 # PostgreSQL local data
 **/docker/local_postgres/data/*
 
+# elasticsearch local data local data
+**/docker/elasticsearch/data/*
+
 # local monitoring
 **/docker/local_monitoring/
+
+# RabbitMQ local data
+**/docker/rabbitmq/data/*
 
 # End of https://www.toptal.com/developers/gitignore/api/java,gradle,intellij+all,macos

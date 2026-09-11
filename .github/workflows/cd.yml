@@ -4,16 +4,27 @@ on:
   push:
     branches:
       - dev
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: '전체 모듈 재배포'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   changes:
     runs-on: self-hosted
     outputs:
-      commerce: ${{ steps.filter.outputs.commerce }}
-      identity: ${{ steps.filter.outputs.identity }}
-      gateway: ${{ steps.filter.outputs.gateway }}
+      commerce: ${{ steps.filter.outputs.commerce == 'true' || steps.filter.outputs.root == 'true' || inputs.force_all == true }}
+      identity: ${{ steps.filter.outputs.identity == 'true' || steps.filter.outputs.root == 'true' || inputs.force_all == true }}
+      gateway: ${{ steps.filter.outputs.gateway == 'true' || steps.filter.outputs.root == 'true' || inputs.force_all == true }}
+      financial: ${{ steps.filter.outputs.financial == 'true' || steps.filter.outputs.root == 'true' || inputs.force_all == true }}
+      recommendation: ${{ steps.filter.outputs.recommendation == 'true' || steps.filter.outputs.root == 'true' || inputs.force_all == true }}
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -27,10 +38,21 @@ jobs:
             gateway:
               - 'gateway-service/**'
               - 'common/**'
+            financial:
+              - 'financial-service/**'
+              - 'common/**'
+            recommendation:
+              - 'recommendation-service/**'
+              - 'common/**'
+            root:
+              - 'build.gradle'
+              - 'settings.gradle'
 
   deploy:
     needs: changes
     runs-on: self-hosted
+    env:
+      DOCKER_BUILDKIT: 1
 
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +63,7 @@ jobs:
           chmod +x ./deploy/scripts/deploy-container.sh
 
       - name: Ensure Docker network exists
-        if: needs.changes.outputs.commerce == 'true' || needs.changes.outputs.identity == 'true' || needs.changes.outputs.gateway == 'true'
+        if: needs.changes.outputs.commerce == 'true' || needs.changes.outputs.identity == 'true' || needs.changes.outputs.gateway == 'true' || needs.changes.outputs.financial == 'true' || needs.changes.outputs.recommendation == 'true'
         run: docker network inspect dear-net >/dev/null 2>&1 || docker network create dear-net
 
       - name: Build commerce-service image
@@ -61,11 +83,19 @@ jobs:
           PRODUCT_CLIENT_BASE_URL=${{ secrets.PRODUCT_CLIENT_BASE_URL }}
           OFFER_CLIENT_BASE_URL=${{ secrets.OFFER_CLIENT_BASE_URL }}
           WALLET_CLIENT_BASE_URL=${{ secrets.WALLET_CLIENT_BASE_URL }}
+          RECOMMENDATION_CLIENT_BASE_URL=${{ secrets.RECOMMENDATION_CLIENT_BASE_URL }}
           AWS_S3_BUCKET_NAME=${{ vars.AWS_S3_BUCKET_NAME }}
           AWS_REGION=${{ vars.AWS_REGION }}
           AWS_ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY }}
           AWS_SECRET_KEY=${{ secrets.AWS_SECRET_KEY }}
           TOSS_SECRET_KEY=${{ secrets.TOSS_SECRET_KEY }}
+          ES_URL=${{ secrets.ES_URL }}
+          RABBITMQ_STREAM_HOST=${{ secrets.RABBITMQ_STREAM_HOST }}
+          RABBITMQ_STREAM_PORT=${{ vars.RABBITMQ_STREAM_PORT }}
+          RABBITMQ_STREAM_USERNAME=${{ secrets.RABBITMQ_STREAM_USERNAME }}
+          RABBITMQ_STREAM_PASSWORD=${{ secrets.RABBITMQ_STREAM_PASSWORD }}
+          RABBITMQ_STREAM_VIRTUAL_HOST=${{ vars.RABBITMQ_STREAM_VIRTUAL_HOST }}
+          FINANCIAL_CLIENT_BASE_URL=${{ secrets.FINANCIAL_CLIENT_BASE_URL }}
           EOF
           chmod 600 commerce-service/.env
 
@@ -98,8 +128,14 @@ jobs:
           AUTH_COOKIE_SAME_SITE=${{ vars.AUTH_COOKIE_SAME_SITE }}
           AUTH_COOKIE_PATH=${{ vars.AUTH_COOKIE_PATH }}
           COMMERCE_BASE_URL=${{ vars.COMMERCE_BASE_URL }}
+          FINANCIAL_BASE_URL=${{ vars.FINANCIAL_BASE_URL }}
+          IDENTITY_BASE_URL=${{ vars.IDENTITY_BASE_URL }}
           AES_SECRET_KEY=${{ secrets.AES_SECRET_KEY }}
           AES_SECRET_IV=${{ secrets.AES_SECRET_IV }}
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+          OAUTH_REDIRECT_URI=${{ secrets.OAUTH_REDIRECT_URI }}
+          OAUTH_SUCCESS_REDIRECT_URI=${{ secrets.OAUTH_SUCCESS_REDIRECT_URI }}
           EOF
           chmod 600 identity-service/.env
 
@@ -110,6 +146,32 @@ jobs:
       - name: Remove identity-service .env
         if: always() && needs.changes.outputs.identity == 'true'
         run: rm -f identity-service/.env
+
+      - name: Build recommendation-service image
+        if: needs.changes.outputs.recommendation == 'true'
+        run: docker build -t recommendation-service:latest -f recommendation-service/Dockerfile .
+
+      - name: Create recommendation-service .env
+        if: needs.changes.outputs.recommendation == 'true'
+        run: |
+          cat > recommendation-service/.env << EOF
+          SPRING_PROFILES_ACTIVE=prod
+          DB_URL=${{ secrets.DB_URL }}
+          DB_USERNAME=${{ secrets.DB_USERNAME }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_DRIVER=${{ vars.DB_DRIVER }}
+          DB_SCHEMA=${{ vars.RECOMMENDATION_DB_SCHEMA || 'recommendation' }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          EOF
+          chmod 600 recommendation-service/.env
+
+      - name: Deploy recommendation-service
+        if: needs.changes.outputs.recommendation == 'true'
+        run: ./deploy/scripts/deploy-container.sh recommendation-service 8084 8084 recommendation-service/.env
+
+      - name: Remove recommendation-service .env
+        if: always() && needs.changes.outputs.recommendation == 'true'
+        run: rm -f recommendation-service/.env
 
       - name: Build gateway-service image
         if: needs.changes.outputs.gateway == 'true'
@@ -133,3 +195,44 @@ jobs:
       - name: Remove gateway-service .env
         if: always() && needs.changes.outputs.gateway == 'true'
         run: rm -f gateway-service/.env
+
+      - name: Build financial-service image
+        if: needs.changes.outputs.financial == 'true'
+        run: docker build -t financial-service:latest -f financial-service/Dockerfile .
+
+      - name: Create financial-service .env
+        if: needs.changes.outputs.financial == 'true'
+        run: |
+          cat > financial-service/.env << EOF
+          SPRING_PROFILES_ACTIVE=prod
+          DB_URL=${{ secrets.DB_URL }}
+          DB_USERNAME=${{ secrets.DB_USERNAME }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_DRIVER=${{ vars.DB_DRIVER }}
+          TOSS_SECRET_KEY=${{ secrets.TOSS_SECRET_KEY }}
+          TOSS_BASE_URL=${{ vars.TOSS_BASE_URL }}
+          RABBITMQ_STREAM_HOST=${{ secrets.RABBITMQ_STREAM_HOST }}
+          RABBITMQ_STREAM_PORT=${{ vars.RABBITMQ_STREAM_PORT }}
+          RABBITMQ_STREAM_USERNAME=${{ secrets.RABBITMQ_STREAM_USERNAME }}
+          RABBITMQ_STREAM_PASSWORD=${{ secrets.RABBITMQ_STREAM_PASSWORD }}
+          RABBITMQ_STREAM_VIRTUAL_HOST=${{ vars.RABBITMQ_STREAM_VIRTUAL_HOST }}
+          EOF
+          chmod 600 financial-service/.env
+
+      - name: Deploy financial-service
+        if: needs.changes.outputs.financial == 'true'
+        run: ./deploy/scripts/deploy-container.sh financial-service 8083 8083 financial-service/.env
+
+      - name: Remove financial-service .env
+        if: always() && needs.changes.outputs.financial == 'true'
+        run: rm -f financial-service/.env
+
+      - name: Prune unused docker images
+        if: always()
+        run: |
+          echo "== 정리 전"
+          docker system df
+          docker image prune -f
+          docker builder prune -f --filter "until=168h"
+          echo "== 정리 후"
+          docker system df

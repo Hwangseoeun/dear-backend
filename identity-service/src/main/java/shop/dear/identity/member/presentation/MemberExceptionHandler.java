@@ -1,6 +1,7 @@
 package shop.dear.identity.member.presentation;
 
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -15,12 +16,15 @@ import shop.dear.identity.member.domain.exception.MemberErrorCode;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static shop.dear.common.exception.CommonErrorCode.INTERNAL_SERVER_APPLICATION_ERROR;
 import static shop.dear.common.response.ApiResponse.fail;
 
 @Slf4j
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(assignableTypes = {MemberController.class, InternalMemberController.class})
 public class MemberExceptionHandler{
+
+    private static final String NICKNAME_CONSTRAINT = "uk_member_nickname";
 
     @ExceptionHandler
     public ResponseEntity<ApiResponse<List<String>>> handleValidException(final MethodArgumentNotValidException e) {
@@ -43,12 +47,22 @@ public class MemberExceptionHandler{
     }
 
     @ExceptionHandler
-    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolationException(final DataIntegrityViolationException e) {
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolationException(
+        final DataIntegrityViolationException e) {
 
-        log.warn("{} 발생! 닉네임 중복", e.getClass().getSimpleName(), e);
+        if (isNicknameDuplicated(e)) {
+            log.warn("닉네임 중복 발생", e);
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(fail(MemberErrorCode.DUPLICATE_NICKNAME));
+        }
 
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-            .body(fail(MemberErrorCode.DUPLICATE_NICKNAME));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(fail(INTERNAL_SERVER_APPLICATION_ERROR));
     }
 
+    private boolean isNicknameDuplicated(final DataIntegrityViolationException e) {
+
+        return e.getCause() instanceof ConstraintViolationException hibernateException
+            && NICKNAME_CONSTRAINT.equals(hibernateException.getConstraintName());
+    }
 }

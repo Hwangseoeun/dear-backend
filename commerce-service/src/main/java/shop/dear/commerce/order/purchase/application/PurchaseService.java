@@ -1,6 +1,9 @@
 package shop.dear.commerce.order.purchase.application;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shop.dear.commerce.order.purchase.application.port.MemberPort;
@@ -8,19 +11,23 @@ import shop.dear.commerce.order.purchase.application.dto.CreatePurchaseCommand;
 import shop.dear.commerce.order.purchase.application.port.ProductPort;
 import shop.dear.commerce.order.purchase.application.port.PurchaseEventPublisher;
 import shop.dear.commerce.order.purchase.application.port.dto.ProductInfo;
+import shop.dear.commerce.order.purchase.domain.constant.PurchaseStatus;
 import shop.dear.commerce.order.purchase.domain.model.Purchase;
 import shop.dear.commerce.order.purchase.domain.repository.PurchaseRepository;
 import shop.dear.common.event.financial.PaymentRequestedEvent;
-import shop.dear.common.event.order.FinishedOrderEvent;
-import shop.dear.common.event.order.OrderType;
+import shop.dear.common.event.order.CanceledPurchaseEvent;
+import shop.dear.common.type.OrderType;
+import shop.dear.commerce.order.purchase.domain.constant.PurchaseCancelReason;
 import shop.dear.common.exception.BusinessException;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-import static shop.dear.commerce.order.purchase.domain.exception.PurchaseErrorCode.PURCHASE_NOT_FOUND;
+import static shop.dear.commerce.order.purchase.domain.exception.PurchaseErrorCode.*;
 
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
@@ -32,6 +39,7 @@ public class PurchaseService {
     private final PurchaseEventPublisher purchaseEventPublisher;
     private final ProductPort productPort;
     private final MemberPort memberPort;
+    private final PurchaseExpirationProcessor purchaseExpirationProcessor;
 
     public Purchase getPurchase(final Long purchaseId, final Long buyerId) {
         validateMemberExists(buyerId);
@@ -50,10 +58,10 @@ public class PurchaseService {
         memberPort.validateMemberExists(memberId);
     }
 
-    public List<Purchase> getPurchasesByBuyerId(final Long buyerId) {
+    public Page<Purchase> getPurchasesByBuyerId(final Long buyerId, final Pageable pageable) {
         validateMemberExists(buyerId);
 
-        return purchaseRepository.findByBuyerId(buyerId);
+        return purchaseRepository.findByBuyerId(buyerId, pageable);
     }
 
     @Transactional
@@ -61,6 +69,12 @@ public class PurchaseService {
         validateMemberExists(command.buyerId());
 
         final ProductInfo product = productPort.getProduct(command.productId());
+        validateProductForPurchase(command.buyerId(), product);
+
+        if (!productPort.tradeProduct(command.productId())) {
+            throw new BusinessException(PRODUCT_ALREADY_TRADING);
+        }
+
         final LocalDateTime paymentDueAt =
                 LocalDateTime.now().plusMinutes(PAYMENT_DUE_MINUTES);
 
@@ -77,12 +91,26 @@ public class PurchaseService {
 
         purchaseEventPublisher.publish(new PaymentRequestedEvent(
                 savedPurchase.getId(),
-                OrderType.PURCHASE,
+                OrderType.PURCHASE.name(),
                 savedPurchase.getBuyerId(),
                 savedPurchase.getAmount()
         ));
 
         return savedPurchase;
+    }
+
+    private void validateProductForPurchase(Long buyerId, ProductInfo product) {
+        if (product.isOwnedBy(buyerId)) {
+            throw new BusinessException(CANNOT_PURCHASE_OWN_PRODUCT);
+        }
+
+        if (!product.isOnSale()) {
+            throw new BusinessException(PRODUCT_NOT_ON_SALE);
+        }
+
+        if (!product.isImmediateSale()) {
+            throw new BusinessException(PRODUCT_NOT_FOR_IMMEDIATE_PURCHASE);
+        }
     }
 
     @Transactional
@@ -97,5 +125,40 @@ public class PurchaseService {
         }
 
         purchase.cancel();
+
+        purchaseEventPublisher.publish(new CanceledPurchaseEvent(
+                purchase.getId(),
+                purchase.getBuyerId(),
+                purchase.getSellerId(),
+                purchase.getProductId(),
+                PurchaseCancelReason.CANCELLED.name()
+        ));
+    }
+
+    public void expireOverduePurchases() {
+        final LocalDateTime now = LocalDateTime.now();
+        final List<Purchase> overduePurchases = purchaseRepository.findAllByStatusAndPaymentDueAtBefore(
+                PurchaseStatus.PENDING_PAYMENT, now);
+
+        int successCount = 0;
+        int skippedCount = 0;
+        final List<Long> failedPurchaseIds = new ArrayList<>();
+
+        for (final Purchase purchase : overduePurchases) {
+            try {
+                final boolean expired = purchaseExpirationProcessor.expire(purchase.getId());
+                if (expired) {
+                    successCount++;
+                } else {
+                    skippedCount++;
+                }
+            } catch (final Exception e) {
+                log.error("구매 만료 처리 중 예외가 발생하여 건너뜁니다. purchaseId={}", purchase.getId(), e);
+                failedPurchaseIds.add(purchase.getId());
+            }
+        }
+
+        log.info("구매 만료 스케줄러 실행 완료: 대상={}건, 성공={}건, 스킵(상태 변경됨)={}건, 실패={}건, 실패 ID={}",
+                overduePurchases.size(), successCount, skippedCount, failedPurchaseIds.size(), failedPurchaseIds);
     }
 }

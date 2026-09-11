@@ -7,7 +7,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.annotation.Transactional;
 import shop.dear.commerce.search.domain.SearchProduct;
-import shop.dear.commerce.search.domain.SearchRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -25,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SearchRepositoryAdapterTest {
 
     @Autowired
-    private SearchRepository searchRepository;
+    private SearchRepositoryAdapter searchRepository;
 
     @Test
     void searchesByProductNameContainingKeyword() {
@@ -51,18 +50,18 @@ class SearchRepositoryAdapterTest {
         searchRepository.save(createProduct(
                 1L,
                 "나이키 에어포스",
-                "SNEAKERS",
+                "SEARCH_TEST_CATEGORY",
                 "빈티지샵에서 구매한 상품"
         ));
 
         Page<SearchProduct> result = searchRepository.searchByCategory(
-                "sneakers",
+                "search_test_category",
                 PageRequest.of(0, 20)
         );
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getCategory())
-                .isEqualTo("SNEAKERS");
+                .isEqualTo("SEARCH_TEST_CATEGORY");
     }
 
     @Test
