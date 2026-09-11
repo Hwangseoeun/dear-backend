@@ -8,12 +8,17 @@ import java.time.LocalDateTime;
 public record TrackBehaviorRequest (
     String eventId,
     String recommendationId,
-    Long memberId,
     Long productId,
     BehaviorType eventType,
     LocalDateTime occurredAt
 ) {
    public TrackBehaviorCommand toCommand() {
-       return TrackBehaviorCommand.from(this);
+       return new TrackBehaviorCommand(
+               eventId,
+               recommendationId,
+               productId,
+               eventType,
+               occurredAt
+       );
    }
 }

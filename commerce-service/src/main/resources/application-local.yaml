@@ -5,6 +5,12 @@ spring:
     password: ${DB_PASSWORD:root}
     driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
 
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:dear}
+    password: ${RABBITMQ_PASSWORD:dear}
+
   jpa:
     hibernate:
       ddl-auto: update
@@ -14,3 +20,12 @@ spring:
         format_sql: true
         highlight_sql: true
         default_batch_fetch_size: 100
+
+messaging:
+  rabbitmq:
+    stream:
+      host: ${RABBITMQ_STREAM_HOST:localhost}
+      port: ${RABBITMQ_STREAM_PORT:5552}
+      username: ${RABBITMQ_STREAM_USERNAME:dear}
+      password: ${RABBITMQ_STREAM_PASSWORD:dear}
+      virtualHost: /

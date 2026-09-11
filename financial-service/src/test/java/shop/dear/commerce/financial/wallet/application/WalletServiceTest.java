@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class WalletServiceTest {
@@ -850,6 +851,7 @@ public class WalletServiceTest {
         private final Map<Long, Wallet> wallets = new HashMap<>();
         private int saveCount;
         private boolean failOnSave;
+        private boolean createWalletThenFailOnSave;
 
         @Override
         public Optional<Wallet> findById(final Long walletId) {
@@ -865,6 +867,11 @@ public class WalletServiceTest {
 
         @Override
         public Wallet save(final Wallet wallet) {
+            if (createWalletThenFailOnSave) {
+                wallets.put(wallet.getMemberId(), Wallet.create(wallet.getMemberId()));
+                throw new DataIntegrityViolationException("duplicate wallet");
+            }
+
             if (failOnSave) {
                 throw new DataIntegrityViolationException("duplicate release");
             }
@@ -884,6 +891,10 @@ public class WalletServiceTest {
 
         void failOnSave() {
             failOnSave = true;
+        }
+
+        void createWalletThenFailOnSave() {
+            createWalletThenFailOnSave = true;
         }
     }
 }

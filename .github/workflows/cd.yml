@@ -51,6 +51,8 @@ jobs:
   deploy:
     needs: changes
     runs-on: self-hosted
+    env:
+      DOCKER_BUILDKIT: 1
 
     steps:
       - uses: actions/checkout@v4
@@ -88,6 +90,12 @@ jobs:
           AWS_SECRET_KEY=${{ secrets.AWS_SECRET_KEY }}
           TOSS_SECRET_KEY=${{ secrets.TOSS_SECRET_KEY }}
           ES_URL=${{ secrets.ES_URL }}
+          RABBITMQ_STREAM_HOST=${{ secrets.RABBITMQ_STREAM_HOST }}
+          RABBITMQ_STREAM_PORT=${{ vars.RABBITMQ_STREAM_PORT }}
+          RABBITMQ_STREAM_USERNAME=${{ secrets.RABBITMQ_STREAM_USERNAME }}
+          RABBITMQ_STREAM_PASSWORD=${{ secrets.RABBITMQ_STREAM_PASSWORD }}
+          RABBITMQ_STREAM_VIRTUAL_HOST=${{ vars.RABBITMQ_STREAM_VIRTUAL_HOST }}
+          FINANCIAL_CLIENT_BASE_URL=${{ secrets.FINANCIAL_CLIENT_BASE_URL }}
           EOF
           chmod 600 commerce-service/.env
 
@@ -120,6 +128,7 @@ jobs:
           AUTH_COOKIE_SAME_SITE=${{ vars.AUTH_COOKIE_SAME_SITE }}
           AUTH_COOKIE_PATH=${{ vars.AUTH_COOKIE_PATH }}
           COMMERCE_BASE_URL=${{ vars.COMMERCE_BASE_URL }}
+          FINANCIAL_BASE_URL=${{ vars.FINANCIAL_BASE_URL }}
           IDENTITY_BASE_URL=${{ vars.IDENTITY_BASE_URL }}
           AES_SECRET_KEY=${{ secrets.AES_SECRET_KEY }}
           AES_SECRET_IV=${{ secrets.AES_SECRET_IV }}
@@ -202,6 +211,11 @@ jobs:
           DB_DRIVER=${{ vars.DB_DRIVER }}
           TOSS_SECRET_KEY=${{ secrets.TOSS_SECRET_KEY }}
           TOSS_BASE_URL=${{ vars.TOSS_BASE_URL }}
+          RABBITMQ_STREAM_HOST=${{ secrets.RABBITMQ_STREAM_HOST }}
+          RABBITMQ_STREAM_PORT=${{ vars.RABBITMQ_STREAM_PORT }}
+          RABBITMQ_STREAM_USERNAME=${{ secrets.RABBITMQ_STREAM_USERNAME }}
+          RABBITMQ_STREAM_PASSWORD=${{ secrets.RABBITMQ_STREAM_PASSWORD }}
+          RABBITMQ_STREAM_VIRTUAL_HOST=${{ vars.RABBITMQ_STREAM_VIRTUAL_HOST }}
           EOF
           chmod 600 financial-service/.env
 
