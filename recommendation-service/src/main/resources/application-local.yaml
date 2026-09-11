@@ -7,6 +7,12 @@ spring:
     hikari:
       connection-init-sql: CREATE SCHEMA IF NOT EXISTS ${DB_SCHEMA:recommendation}
 
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:dear}
+    password: ${RABBITMQ_PASSWORD:dear}
+
   jpa:
     hibernate:
       ddl-auto: update
