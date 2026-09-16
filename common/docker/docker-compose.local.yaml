@@ -1,0 +1,7 @@
+name: dear-local
+
+include:
+  - local_postgres/docker-compose.local.yaml
+  - rabbitmq/docker-compose.local.yaml
+  - elasticsearch/docker-compose.local.yaml
+  - ollama/docker-compose.local.yaml
