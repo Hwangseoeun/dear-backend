@@ -18,7 +18,7 @@ import shop.dear.identity.member.application.dto.external.ExistsProduct;
 import shop.dear.identity.member.application.port.AuthRolePort;
 import shop.dear.identity.member.application.port.ProductPort;
 import shop.dear.identity.member.application.port.WalletPort;
-import shop.dear.identity.member.domain.constract.SellerStatus;
+import shop.dear.identity.member.domain.constant.SellerStatus;
 import shop.dear.identity.member.domain.exception.MemberErrorCode;
 import shop.dear.identity.member.domain.model.AccountInfo;
 import shop.dear.identity.member.domain.model.Member;

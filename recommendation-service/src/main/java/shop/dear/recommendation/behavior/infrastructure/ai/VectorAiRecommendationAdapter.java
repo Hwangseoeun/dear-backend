@@ -4,12 +4,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import shop.dear.commerce.product.domain.constant.ProductStatus;
-import shop.dear.recommendation.application.RecommendationService;
+import shop.dear.recommendation.ai.application.RecommendationService;
 import shop.dear.recommendation.behavior.application.dto.AiRecommendationResult;
 import shop.dear.recommendation.behavior.application.port.AiRecommendationPort;
 import shop.dear.recommendation.behavior.domain.model.RecommendationItem;
 import shop.dear.recommendation.behavior.domain.repository.RecommendationItemRepository;
-import shop.dear.recommendation.domain.model.RecommendationSimilarItem;
+import shop.dear.recommendation.ai.domain.model.RecommendationSimilarItem;
 
 import java.util.List;
 import java.util.Map;

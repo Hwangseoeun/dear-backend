@@ -6,8 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import shop.dear.audit.BaseEntity;
 import shop.dear.common.exception.BusinessException;
-import shop.dear.identity.member.domain.constract.MemberStatus;
-import shop.dear.identity.member.domain.constract.SellerStatus;
+import shop.dear.identity.member.domain.constant.MemberStatus;
+import shop.dear.identity.member.domain.constant.SellerStatus;
 import shop.dear.identity.member.domain.exception.MemberErrorCode;
 
 import java.time.LocalDateTime;
