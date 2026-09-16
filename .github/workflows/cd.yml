@@ -1,9 +1,13 @@
 name: CD - Build & Deploy
 
+# 개인 포크 - 로컬 전용 구조라 CD 비활성화.
+# 원본 팀의 self-hosted 배포 러너/인프라가 해당 레포에는 없어 실행할 수 없다.
+# 배포 스텝 구성은 참고용으로 남겨두고, push 자동 트리거는 제거했다.
+# workflow_dispatch로 수동 실행해도 아래 job의 if: false 때문에 실제로는 아무것도 돌지 않는다.
 on:
-  push:
-    branches:
-      - dev
+#  push:
+#    branches:
+#      - dev
   workflow_dispatch:
     inputs:
       force_all:
@@ -14,6 +18,7 @@ on:
 
 jobs:
   changes:
+    if: false
     runs-on: self-hosted
     outputs:
       commerce: ${{ steps.filter.outputs.commerce == 'true' || steps.filter.outputs.root == 'true' || inputs.force_all == true }}
@@ -49,6 +54,7 @@ jobs:
               - 'settings.gradle'
 
   deploy:
+    if: false
     needs: changes
     runs-on: self-hosted
     env:
