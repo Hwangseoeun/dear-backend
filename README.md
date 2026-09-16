@@ -270,10 +270,10 @@ flowchart LR
 
 ### 1. 인프라 실행
 
-**[ PostgreSQL ]**
+PostgreSQL, RabbitMQ, Elasticsearch, Ollama를 한 번에 띄웁니다.
 ```bash
 docker compose \
-  -f common/docker/local_postgres/docker-compose.local.yaml \
+  -f common/docker/docker-compose.local.yaml \
   up -d
 ```
 
@@ -284,30 +284,9 @@ DB_URL = jdbc:postgresql://localhost:5432/dear
 DB_USERNAME = root
 DB_PASSWORD = root
 ```
-
-**[ RabbitMQ ]** — commerce-service, financial-service의 이벤트 발행/구독(RabbitMQ Streams)에 필요합니다.
-```bash
-docker compose \
-  -f common/docker/rabbitmq/docker-compose.local.yaml \
-  up -d
-```
-- 로컬 기본 계정: `dear` / `dear`
-- 관리 콘솔: http://localhost:15672
-
-**[ Elasticsearch ]** — commerce-service의 검색 기능에 필요합니다.
-```bash
-docker compose \
-  -f common/docker/elasticsearch/docker-compose.local.yaml \
-  up -d
-```
-
-**[ Ollama ]** — recommendation-service의 상품 임베딩(유사 상품 추천)에 필요합니다.
-```bash
-docker compose \
-  -f common/docker/ollama/docker-compose.local.yaml \
-  up -d
-```
-- 최초 1회, 임베딩 모델을 받아둬야 합니다
+- RabbitMQ(commerce-service, financial-service의 RabbitMQ Streams 발행/구독에 필요) 로컬 기본 계정: `dear` / `dear`, 관리 콘솔: http://localhost:15672
+- Elasticsearch: commerce-service의 검색 기능에 필요합니다.
+- Ollama(recommendation-service의 상품 임베딩에 필요): 최초 1회, 임베딩 모델을 받아둬야 합니다
 ```bash
 docker exec ollama-local ollama pull bge-m3
 ```
