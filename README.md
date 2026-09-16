@@ -99,7 +99,7 @@ dear
 │           ├── offersnapshot       # 오퍼 스냅샷
 │           └── purchase            # 구매
 ├── financial-service               # 결제 · 정산 · 예치금 서비스
-│   └── shop.dear.commerce.financial
+│   └── shop.dear.financial
 │       ├── payment                 # 결제
 │       ├── settlement              # 정산
 │       ├── settlementpolicy        # 정산 정책
