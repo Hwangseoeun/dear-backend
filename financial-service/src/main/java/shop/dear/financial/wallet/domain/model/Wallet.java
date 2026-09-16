@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import shop.dear.financial.wallet.domain.costant.WalletLogType;
+import shop.dear.financial.wallet.domain.constant.WalletLogType;
 import shop.dear.audit.BaseEntity;
 import shop.dear.common.exception.BusinessException;
 import shop.dear.financial.wallet.domain.exception.WalletErrorCode;

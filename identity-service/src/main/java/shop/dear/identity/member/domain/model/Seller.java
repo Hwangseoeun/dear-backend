@@ -18,7 +18,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import shop.dear.audit.BaseEntity;
-import shop.dear.identity.member.domain.constract.SellerStatus;
+import shop.dear.identity.member.domain.constant.SellerStatus;
 
 import java.time.LocalDateTime;
 

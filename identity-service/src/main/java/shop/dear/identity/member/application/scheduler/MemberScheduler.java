@@ -3,7 +3,7 @@ package shop.dear.identity.member.application.scheduler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-import shop.dear.identity.member.domain.constract.SellerStatus;
+import shop.dear.identity.member.domain.constant.SellerStatus;
 import shop.dear.identity.member.domain.model.ArchivedAccount;
 import shop.dear.identity.member.domain.model.Member;
 import shop.dear.identity.member.domain.model.SellerAccountSnapshot;

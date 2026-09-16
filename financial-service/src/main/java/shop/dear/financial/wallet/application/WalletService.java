@@ -7,7 +7,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import shop.dear.financial.wallet.application.dto.*;
 import shop.dear.financial.wallet.application.port.WalletLogQueryPort;
-import shop.dear.financial.wallet.domain.costant.WalletLogType;
+import shop.dear.financial.wallet.domain.constant.WalletLogType;
 import shop.dear.financial.wallet.domain.exception.WalletErrorCode;
 import shop.dear.financial.wallet.domain.model.Wallet;
 import shop.dear.financial.wallet.domain.repository.WalletRepository;

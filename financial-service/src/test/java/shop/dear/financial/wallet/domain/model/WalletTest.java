@@ -3,7 +3,7 @@ package shop.dear.financial.wallet.domain.model;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import shop.dear.financial.wallet.domain.costant.WalletLogType;
+import shop.dear.financial.wallet.domain.constant.WalletLogType;
 import shop.dear.financial.wallet.domain.exception.WalletErrorCode;
 import shop.dear.common.exception.BusinessException;
 

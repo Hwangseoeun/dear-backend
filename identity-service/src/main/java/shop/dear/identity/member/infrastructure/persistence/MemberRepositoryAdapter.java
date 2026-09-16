@@ -2,7 +2,7 @@ package shop.dear.identity.member.infrastructure.persistence;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
-import shop.dear.identity.member.domain.constract.SellerStatus;
+import shop.dear.identity.member.domain.constant.SellerStatus;
 import shop.dear.identity.member.domain.model.Member;
 import shop.dear.identity.member.domain.repository.MemberRepository;
 import shop.dear.identity.member.infrastructure.persistence.jpa.MemberJpaRepository;

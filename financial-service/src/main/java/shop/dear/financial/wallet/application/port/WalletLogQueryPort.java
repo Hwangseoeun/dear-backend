@@ -1,6 +1,6 @@
 package shop.dear.financial.wallet.application.port;
 
-import shop.dear.financial.wallet.domain.costant.WalletLogType;
+import shop.dear.financial.wallet.domain.constant.WalletLogType;
 import java.math.BigDecimal;
 import java.util.Optional;
 

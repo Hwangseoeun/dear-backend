@@ -13,7 +13,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 import shop.dear.common.exception.BusinessException;
-import shop.dear.identity.member.domain.constract.SellerStatus;
+import shop.dear.identity.member.domain.constant.SellerStatus;
 import shop.dear.identity.member.domain.exception.MemberErrorCode;
 import shop.dear.identity.member.domain.model.AccountInfo;
 import shop.dear.identity.member.domain.model.ArchivedAccount;

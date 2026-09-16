@@ -1,6 +1,6 @@
 package shop.dear.identity.member.domain.repository;
 
-import shop.dear.identity.member.domain.constract.SellerStatus;
+import shop.dear.identity.member.domain.constant.SellerStatus;
 import shop.dear.identity.member.domain.model.Member;
 
 import java.time.LocalDateTime;

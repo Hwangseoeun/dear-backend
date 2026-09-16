@@ -1,4 +1,4 @@
-package shop.dear.financial.wallet.domain.costant;
+package shop.dear.financial.wallet.domain.constant;
 
 public enum WalletLogType {
     PAYMENT,      // 결제

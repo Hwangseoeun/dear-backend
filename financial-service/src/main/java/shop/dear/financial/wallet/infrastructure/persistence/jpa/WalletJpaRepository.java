@@ -3,7 +3,7 @@ package shop.dear.financial.wallet.infrastructure.persistence.jpa;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import shop.dear.financial.wallet.domain.costant.WalletLogType;
+import shop.dear.financial.wallet.domain.constant.WalletLogType;
 import shop.dear.financial.wallet.domain.model.Wallet;
 
 import java.math.BigDecimal;

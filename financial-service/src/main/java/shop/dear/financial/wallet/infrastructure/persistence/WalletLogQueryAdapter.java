@@ -3,7 +3,7 @@ package shop.dear.financial.wallet.infrastructure.persistence;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import shop.dear.financial.wallet.application.port.WalletLogQueryPort;
-import shop.dear.financial.wallet.domain.costant.WalletLogType;
+import shop.dear.financial.wallet.domain.constant.WalletLogType;
 import shop.dear.financial.wallet.infrastructure.persistence.jpa.WalletJpaRepository;
 
 import java.math.BigDecimal;
