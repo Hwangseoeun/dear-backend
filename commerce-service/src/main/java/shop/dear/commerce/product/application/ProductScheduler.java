@@ -3,6 +3,7 @@ package shop.dear.commerce.product.application;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import shop.dear.commerce.product.application.dto.external.PublishProductInfo;
 import shop.dear.commerce.product.application.port.PublishProduct;
 import shop.dear.commerce.product.domain.repository.ProductRepository;
@@ -18,6 +19,7 @@ public class ProductScheduler implements PublishProduct {
     private final ProductRepository productRepository;
 
     @Override
+    @Transactional
     public PublishProductInfo publishDailyProducts() {
         final LocalDateTime endTime = LocalDate.now().atTime(20, 0, 0);  // 오늘 20:00:00
         final LocalDateTime startTime = endTime.minusDays(1); // 어제 20:00:00
