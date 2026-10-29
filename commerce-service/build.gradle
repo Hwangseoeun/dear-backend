@@ -31,3 +31,15 @@ tasks.named('jar') {
 tasks.named('bootJar') {
     archiveClassifier = ''
 }
+
+// 로컬 성능 측정 전용 태스크.
+// 평소 bootRun은 main 클래스만 올려서 src/test의 측정 전용 API(PublishProductController)가 뜨지 않는다.
+// 해당 태스크는 테스트 클래스만 클래스패스에 추가해 상품 상태 변경 API를 띄운다. bootJar에는 영향이 없다.
+// (src/test/resources 의 application.yaml 이 main 설정을 가리지 않도록 resources 는 제외한다.)
+tasks.register('bootRunBench', org.springframework.boot.gradle.tasks.run.BootRun) {
+    group = 'application'
+    description = '측정 전용 API(src/test/.../PublishProductController)를 포함해 로컬에서만 기동한다.'
+    dependsOn 'testClasses'
+    mainClass = 'shop.dear.commerce.CommerceServiceApplication'
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.output.classesDirs
+}
