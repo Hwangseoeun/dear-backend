@@ -20,32 +20,32 @@ server:
 
 member:
   client:
-    base-url: ${MEMBER_CLIENT_BASE_URL}
+    base-url: ${MEMBER_CLIENT_BASE_URL:http://localhost:8081}
 
 product:
   client:
-    base-url: ${PRODUCT_CLIENT_BASE_URL}
+    base-url: ${PRODUCT_CLIENT_BASE_URL:http://localhost:8082}
 
 offer:
   client:
-    base-url: ${OFFER_CLIENT_BASE_URL}
-
-recommendation:
-  client:
-    base-url: ${RECOMMENDATION_CLIENT_BASE_URL}
+    base-url: ${OFFER_CLIENT_BASE_URL:http://localhost:8082}
 
 financial:
   client:
-    base-url: ${FINANCIAL_CLIENT_BASE_URL}
+    base-url: ${FINANCIAL_CLIENT_BASE_URL:http://localhost:8083}
+
+recommendation:
+  client:
+    base-url: ${RECOMMENDATION_CLIENT_BASE_URL:http://localhost:8084}
 
 secret:
   aws:
     s3:
-      bucket-name: ${AWS_S3_BUCKET_NAME}
-    region: ${AWS_REGION}
+      bucket-name: ${AWS_S3_BUCKET_NAME:local-bucket}
+    region: ${AWS_REGION:ap-northeast-2}
     credentials:
-      access-key: ${AWS_ACCESS_KEY}
-      secret-key: ${AWS_SECRET_KEY}
+      access-key: ${AWS_ACCESS_KEY:local-access-key}
+      secret-key: ${AWS_SECRET_KEY:local-secret-key}
 
 toss:
   base-url: ${TOSS_BASE_URL:https://api.tosspayments.com}
