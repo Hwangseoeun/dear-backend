@@ -100,6 +100,34 @@ http_req_duration.......................: p(95)=650ms       ← PREP 포함 전�
 | `update.js` | `PATCH /api/products/:id` | |
 | `delete.js` | `DELETE /api/products/:id` | 생성/삭제 짝 |
 | `presigned-urls.js` | `POST /api/products/images/presigned-urls` | AWS 호출 없음 |
+| `publish/publish-duration.js` | `POST /internal/dev/product-publish/run` | 오후 8시 일괄 공개 소요 시간 (테스트 전용 API, 아래 참고) |
+
+#### 상품 일괄 공개 소요 시간 측정 (`product/publish/publish-duration.js`)
+
+오후 8시 일괄 공개(`ProductScheduler.publishDailyProducts`)는 크론에서만 돌아 HTTP로 부를 수 없어서,
+`commerce-service/src/test`의 측정 전용 API(`PublishProductController`)를 호출해 서버가 잰 소요 시간을 측정합니다.
+이 API는 운영 jar에 포함되지 않고, 로컬 전용 태스크로 띄울 때만 로드됩니다. 측정 전용 DB(이름에 `_bench`)가 아니면 403으로 거부합니다.
+VU 단계는 사용하지 않고 1 VU가 `RUNS`번 반복합니다.
+
+```bash
+# 1) 최초 1회: 측정 전용 DB
+docker exec postgres-local psql -U root -d postgres -c "CREATE DATABASE dear_bench"
+
+# 2) 측정 전용 태스크로 commerce-service 기동
+DB_URL=jdbc:postgresql://localhost:5432/dear_bench ./gradlew :commerce-service:bootRunBench
+
+# 3) Tier 시드 (Tier 표는 sql/seed-publish-tier.sql 헤더 참고) — 예: Tier 2
+docker exec -i postgres-local psql -U root -d dear_bench -v background_count=39900 -v daily_count=100 < k6/single/product/publish/sql/seed-publish-tier.sql
+
+# 4) 측정 (콜드 측정은 `docker restart postgres-local` 직후 COLD_FIRST=true)
+k6 run -e RUNS=6 -e COLD_FIRST=true -e EXPECTED_DAILY=100 k6/single/product/publish/publish-duration.js
+
+# 5) 정리
+docker exec -i postgres-local psql -U root -d dear_bench < k6/single/product/publish/sql/cleanup-publish-tier.sql
+```
+
+결과의 `publish_elapsed_ms`(min/med/max, `phase:cold|warm`)가 공개 작업이 커밋까지 끝나는 데 걸린 시간입니다.
+`EXPECTED_DAILY`와 개수가 어긋나면(시드 누락·오염) 종료 코드가 실패(99)로 나옵니다.
 
 ### cart (4)
 | 파일 | 대상 | 비고 |
