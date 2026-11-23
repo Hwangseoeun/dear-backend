@@ -101,6 +101,7 @@ http_req_duration.......................: p(95)=650ms       ← PREP 포함 전�
 | `delete.js` | `DELETE /api/products/:id` | 생성/삭제 짝 |
 | `presigned-urls.js` | `POST /api/products/images/presigned-urls` | AWS 호출 없음 |
 | `publish/publish-duration.js` | `POST /internal/dev/product-publish/run` | 오후 8시 일괄 공개 소요 시간 (테스트 전용 API, 아래 참고) |
+| `publish/publish-with-list-traffic.js` | `POST /internal/dev/product-publish/run` + `GET /api/products` | 목록 조회 트래픽이 흐르는 중의 공개 소요 시간·목록 응답시간. 본 측정은 `publish/run-with-external-rearm.sh`로 실행 (아래 참고) |
 
 #### 상품 일괄 공개 소요 시간 측정 (`product/publish/publish-duration.js`)
 
@@ -126,8 +127,82 @@ k6 run -e RUNS=6 -e COLD_FIRST=true -e EXPECTED_DAILY=100 k6/single/product/publ
 docker exec -i postgres-local psql -U root -d dear_bench < k6/single/product/publish/sql/cleanup-publish-tier.sql
 ```
 
-결과의 `publish_elapsed_ms`(min/med/max, `phase:cold|warm`)가 공개 작업이 커밋까지 끝나는 데 걸린 시간입니다.
+결과의 `publish_elapsed_ms`(min/med/p(95)/max, `phase:cold|warm`)가 공개 작업이 커밋까지 끝나는 데 걸린 시간입니다.
 `EXPECTED_DAILY`와 개수가 어긋나면(시드 누락·오염) 종료 코드가 실패(99)로 나옵니다.
+
+#### 목록 조회 트래픽과 함께 상품 일괄 공개 소요 시간 측정 (`product/publish/publish-with-list-traffic.js`)
+
+오후 8시에 상품이 공개되면 사용자가 새 상품을 보러 몰려 목록 조회(`GET /api/products`)가 동시에 들어옵니다.
+이 스크립트는 목록 조회를 일정한 초당 요청 수(`LIST_RPS`)로 계속 쏘는 중에 공개 작업을 `RUNS`번 실행해서 다음을 잽니다.
+
+트래픽 양은 DAU에서 환산합니다. 피크 동시접속 = DAU × 10%, 동시접속자 1명이 2초에 1번 목록을 본다고 가정합니다.
+
+| Tier | DAU | 피크 동시접속 | `LIST_RPS` | `BACKGROUND_COUNT` / `DAILY_COUNT` | `RUNS` | `GAP_SEC` | `ITER_BUDGET_SEC` | `RUN_TIMEOUT_SEC` |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 100 | 10 | 5 | 1990 / 10 | 10 | 5 | 10 | 기본 |
+| 2 | 1,000 | 100 | 50 | 39900 / 100 | 10 | 5 | 10 | 기본 |
+| 3 | 10,000 | 1,000 | 500 | 699000 / 1000 | 10 | 15 | 100 | 기본 |
+| 4 | 100,000 | 10,000 | 5000 | 9990000 / 10000 | 5 | 15 | 135 | 120 |
+
+**실행 방식**
+
+| 단계 | 실행할 것 | 비고 |
+|---|---|---|
+| 기준선 (공개 없이 목록만) | `k6 run -e PUBLISH=false …`를 **직접** 실행 | 공개가 없어 rearm이 필요 없습니다. |
+| 본 측정 (목록 트래픽 + 공개 반복) | `run-with-external-rearm.sh`**만** 실행 | 이 스크립트가 k6를 대신 실행하고 반복 사이 rearm을 DB에 직접 합니다. **k6를 따로 또 실행하지 마세요.** 모든 Tier에서 같은 방식입니다. |
+
+`publish-with-list-traffic.js`는 셸 스크립트를 부르지 않고, 셸 스크립트가 이 k6 스크립트를 실행합니다.
+k6 스크립트는 rearm을 하지 않으므로 공개를 여러 번 재려면 반드시 셸 스크립트로 실행해야 합니다. (k6를 직접 실행하면 2번째 공개부터 대상이 0건이 되어 `공개 건수 일치(run)` 체크가 실패합니다.)
+
+```bash
+# 1) 최초 1회: 측정 전용 DB
+docker exec postgres-local psql -U root -d postgres -c "CREATE DATABASE dear_bench"
+
+# 2) 측정 전용 태스크로 commerce-service 기동
+DB_URL=jdbc:postgresql://localhost:5432/dear_bench ./gradlew :commerce-service:bootRunBench
+
+# 3) Tier 시드 (위 표의 BACKGROUND_COUNT / DAILY_COUNT) — 예: Tier 3
+docker exec -i postgres-local psql -U root -d dear_bench -v background_count=699000 -v daily_count=1000 < k6/single/product/publish/sql/seed-publish-tier.sql
+
+# 4) 기준선: 공개 없이 목록만 (PUBLISH=false) — 예: Tier 3
+k6 run -e PUBLISH=false -e LIST_RPS=500 k6/single/product/publish/publish-with-list-traffic.js
+
+# 5) 본 측정: 목록 트래픽 + 공개 반복 — 예: Tier 3. 인자는 k6 로그를 쓸 경로입니다.
+#    반복 사이 rearm 소요는 <로그>.rearm 에 기록됩니다.
+LIST_RPS=500 BACKGROUND_COUNT=699000 DAILY_COUNT=1000 RUNS=10 GAP_SEC=15 ITER_BUDGET_SEC=100 \
+  k6/single/product/publish/run-with-external-rearm.sh /tmp/tier3.log
+
+# 6) 정리
+docker exec -i postgres-local psql -U root -d dear_bench < k6/single/product/publish/sql/cleanup-publish-tier.sql
+```
+
+**왜 rearm을 DB에 직접 하나**
+
+공개는 대상 상품을 모두 공개 상태로 바꾸므로, 여러 번 재려면 매번 공개 전 상태로 되돌리는 준비(rearm)가 필요합니다.
+rearm은 실제 서비스에는 없는 측정용 단계입니다(실제로는 그날 등록된 상품이 공개 전 상태로 쌓여 있습니다).
+
+앱의 `/rearm` API로 하면 목록 요청이 DB 커넥션 풀(기본 10개)을 모두 점유한 포화 상태에서 커넥션을 못 얻어 HTTP 500으로 실패하고(Tier 4, 5,000 RPS) 공개를 시도하지도 못합니다.
+그래서 모든 Tier에서 rearm을 앱을 거치지 않고 DB에 직접(`sql/rearm-publish-tier.sql`) 실행해 Tier 간, 개선 전후 비교의 조건을 같게 맞춥니다.
+
+공개(`/run`)는 그대로 앱의 같은 커넥션 풀을 거치므로 "포화 시 공개가 커넥션을 기다리는 현상"은 그대로 측정됩니다.
+
+결과 읽는 법
+- `publish_elapsed_ms`: 목록 트래픽이 있을 때의 공개 소요 시간(커넥션 풀 대기 포함). `publish-duration.js` 결과와 비교하면 트래픽의 영향이 보입니다.
+- `http_req_duration{phase:steady}`: 공개와 무관하게 흐르는 배경 목록 요청의 응답시간. `PUBLISH=false`(기준선)에서는 평소 응답시간입니다.
+- `http_req_duration{phase:during}`: 공개와 같은 순간에 보낸 목록 요청의 응답시간. **기준선의 `steady`와 비교**하면 공개 순간의 영향이 보입니다.
+- 달성 RPS = `http_reqs{phase:steady}` 건수 ÷ 측정 시간(워밍업 제외, 시작 시 `[SETUP]` 로그에 출력). 목표 `LIST_RPS`에 못 미치거나 `dropped_iterations`가 나오면 서버가 그 트래픽을 감당하지 못한 것입니다.
+- 목록 p95 100ms 임계값은 목표치라 Tier가 커지면 깨져서 종료 코드가 99가 될 수 있습니다. 오류가 아니라 결과입니다.
+- `/run`이 실패하면(커넥션 풀 대기 타임아웃 등) `[PUBLISH+LIST] run=N FAILED status=…` 로그로 상태와 소요 시간이 남습니다.
+
+주의사항
+- 트래픽 길이 = 워밍업 30초 + `RUNS` × (`GAP_SEC` + `ITER_BUDGET_SEC`) + 10초.
+- **포화 Tier에서는 `/run`이 반복할수록 오래 밀립니다.** 목록 요청이 서버 처리 속도보다 빨리 들어오고, k6가 포기한 요청도 서버가 계속 처리하기 때문에 대기열이 쌓입니다(Tier 3 예: `/run` HTTP 응답이 47초 → 412초). 그래서 뒤쪽 공개는 트래픽이 끝난 뒤에 실행될 수 있으니, 결과에서 각 공개가 트래픽 구간 안이었는지 확인하세요. 서비스 내부 소요(`elapsedMs`, 커넥션 풀 대기 포함)는 이 대기열 시간과 별개입니다.
+- 포화가 극심하면(Tier 4) `/run` 응답이 수 분~수 시간 밀려 반복이 끝나지 않으므로 `RUN_TIMEOUT_SEC`로 응답 대기 시간을 제한합니다(초과하면 `FAILED status=0`).
+- 포화 측정이 끝난 뒤 다음 측정 전에는 앱을 재시작하거나 대기열이 비워질 때까지 기다리세요. 버려진 요청이 한동안 서버를 점유합니다.
+- `GAP_SEC`는 rearm 소요보다 길어야 합니다. 짧으면 다음 공개 때 대상이 아직 공개 전 상태가 아니라 `공개 건수 일치(run)` 체크가 실패합니다.
+- **오후 8시(스케줄러 시각)를 걸치지 않게 측정하세요.** 앱에는 실제 공개 스케줄러(`@Scheduled(cron = "0 0 20 * * *")`)가 돌고 있어서, 측정 중 20:00가 지나면 스케줄러가 준비해 둔 대상 상품을 먼저 공개해 가고 이후 `/run`은 0건이 됩니다(`공개 건수 일치(run)` 실패).
+- rearm은 `window_start`(어제 20:00)를 셸에서 계산해 넘기므로 앱과 같은 머신·시간대에서 실행해야 합니다(macOS는 `date -v`, Linux는 `date -d`로 자동 선택). DB 접속 명령은 기본 `docker exec -i postgres-local psql -U root -d dear_bench`이고 `PSQL` 환경변수로 바꿀 수 있습니다.
+- 측정 전용 DB(이름이 `_bench`로 끝나는 DB)가 아니면 rearm SQL과 시드·정리 SQL이 즉시 중단됩니다.
 
 ### cart (4)
 | 파일 | 대상 | 비고 |
