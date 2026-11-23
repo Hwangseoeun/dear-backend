@@ -57,8 +57,8 @@ export const options = {
         // EXPECTED_DAILY 와 어긋나면(시드 누락·오염) 종료 코드도 실패로 만든다.
         checks: ['rate==1'],
     },
-    // 반복이 몇 번 안 되므로 평균·p95 대신 최소/중앙값/최대만 본다.
-    summaryTrendStats: ['min', 'med', 'max'],
+    // 반복이 몇 번 안 되므로 평균 대신 최소/중앙값/p95/최대를 본다. (반복이 적으면 p95는 최대값에 가깝다)
+    summaryTrendStats: ['min', 'med', 'p(95)', 'max'],
 };
 
 export default function () {
